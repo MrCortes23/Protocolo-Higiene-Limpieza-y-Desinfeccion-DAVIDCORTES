@@ -1,0 +1,103 @@
+<script>
+
+function confirmarLimpieza() {
+  if (!pendingCheckboxData) {
+    cerrarModal();
+    return;
+  }
+  
+  const tipo = pendingCheckboxData.tipo;
+  const registroId = pendingCheckboxData.registroId;
+  
+  // Obtener valores del formulario
+  const responsableInput = document.getElementById('responsable-' + tipo);
+  const fechaInput = document.getElementById('fecha-' + tipo);
+  const observacionesInput = document.getElementById('observaciones-' + tipo);
+  
+  // El responsable ahora es automático, pero verificar que esté presente
+  const responsable = currentUser ? currentUser.nombre : 
+                    (responsableInput ? responsableInput.value : '');
+  const fecha = fechaInput ? fechaInput.value : '';
+  const observaciones = observacionesInput ? observacionesInput.value : '';
+  
+  // Validaciones
+  if (!responsable || responsable.trim() === '') {
+    showAlert("error", "¡Error!", "No se pudo obtener el nombre del usuario. Cierre sesión y vuelva a ingresar.");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  if (!fecha) {
+    showAlert("info", "¡Upss!", "Por favor seleccione la fecha en que realizó la limpieza");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  // Validar que la fecha no sea futura
+  const fechaSeleccionada = new Date(fecha);
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  
+  if (fechaSeleccionada > hoy) {
+    showAlert("warning", "Fecha inválida", "No puede seleccionar una fecha futura");
+    const checkbox = document.getElementById('check-' + tipo);
+    if (checkbox) checkbox.checked = false;
+    cerrarModal();
+    return;
+  }
+  
+  cerrarModal();
+  showLoading();
+  
+  const datos = {
+    estado: 'COMPLETADO',
+    responsable: responsable.trim(),
+    fechaRealizacion: fecha,
+    observaciones: observaciones.trim()
+  };
+  
+  console.log('📤 Enviando datos de limpieza:', datos);
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Éxito!", "Limpieza registrada correctamente");
+        loadElementoTiposLimpieza();
+        actualizarEstadosSidebar(); 
+      } else {
+        showAlert('error', 'Error', 'Error al registrar: ' + (result ? result.message : 'Error desconocido'));
+        const checkbox = document.getElementById('check-' + tipo);
+        if (checkbox) checkbox.checked = false;
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error', 'Error de conexión: ' + error.message);
+      const checkbox = document.getElementById('check-' + tipo);
+      if (checkbox) checkbox.checked = false;
+    })
+    .actualizarRegistroLimpiezaCompleto(registroId, datos);
+  
+  pendingCheckboxData = null;
+}
+
+// Enter key para login
+document.addEventListener('DOMContentLoaded', function() {
+  const cedulaInput = document.getElementById('cedula-input');
+  if (cedulaInput) {
+    cedulaInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        handleLogin();
+      }
+    });
+  }
+  
+  // Test: Verificar que handleLogin existe
+  console.log('✅ handleLogin definido:', typeof handleLogin);
+});
+</script>

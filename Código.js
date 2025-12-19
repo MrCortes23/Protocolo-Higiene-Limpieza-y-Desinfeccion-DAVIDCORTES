@@ -38,7 +38,7 @@ function doGet(e) {
   const title = 'PHLYD';
   const faviconUrl = 'https://alimentosdoria.com/wp-content/uploads/2023/01/logo-doria.png';
   
-  return HtmlService.createTemplateFromFile('index')
+  return HtmlService.createTemplateFromFile('html/index')
     .evaluate()
     .setTitle(title)
     .setFaviconUrl(faviconUrl)

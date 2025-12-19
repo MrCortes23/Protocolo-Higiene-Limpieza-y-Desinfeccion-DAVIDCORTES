@@ -1,0 +1,23 @@
+<script>
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('tab-' + tabName).classList.add('active');
+  
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+  document.getElementById('content-' + tabName).classList.remove('hidden');
+  
+  if (tabName === 'avances') {
+    loadEstadisticas();
+  } else if (tabName === 'proceso') {
+    loadProceso();
+  } else if (tabName === 'planeacion') {
+    loadPlaneaciones();
+  }
+}
+
+function showMainView() {
+  switchTab('planeacion');
+}
+
+</script>

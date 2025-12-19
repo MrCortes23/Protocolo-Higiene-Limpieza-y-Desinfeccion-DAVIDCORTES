@@ -1,0 +1,573 @@
+<script>
+
+async function renderPlaneaciones(planeaciones) {
+  const container = document.getElementById('planeaciones-grid');
+  container.innerHTML = '';
+  
+  if (!planeaciones || planeaciones.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <p class="config-placeholder">No hay planeaciones registradas</p>
+        <button onclick="switchTab('planeacion')" class="btn-principal" style="margin-top: 16px;">
+          Crear primera planeación
+        </button>
+      </div>
+    `;
+    return;
+  }
+  
+  // Procesar datos para obtener estados de limpieza
+  const maquinasDetalladas = await procesarMaquinasConEstados(planeaciones);
+  
+  let html = `
+    <div class="consolidado-detallado">
+      <div class="consolidado-header">
+        <h3 class="header-title">Consolidado Detallado de Limpiezas</h3>
+        <div class="header-stats">
+          <span class="stat-item">
+            <i class="fas fa-industry"></i> ${maquinasDetalladas.length} Máquinas
+          </span>
+          <span class="stat-item">
+            <i class="fas fa-layer-group"></i> ${calcularTotalComponentes(maquinasDetalladas)} Componentes
+          </span>
+          <span class="stat-item">
+            <i class="fas fa-list"></i> ${calcularTotalElementos(maquinasDetalladas)} Elementos
+          </span>
+        </div>
+      </div>
+  `;
+  
+  // Para cada máquina
+  maquinasDetalladas.forEach(maquina => {
+    html += `
+      <div class="maquina-detallada" data-maquina-id="${maquina.maquinaId}">
+    <!-- ENCABEZADO DE MÁQUINA -->
+    <div class="maquina-header">
+      <div class="maquina-info">
+        <div class="maquina-titulo">
+          <h4>${maquina.maquinaNombre}</h4>
+          <span class="maquina-meta">
+            <span class="badge estado ${maquina.estadoGeneral.toLowerCase()}">${maquina.estadoGeneral}</span>
+            <span class="meta-info">ID: ${maquina.maquinaId} | Proceso: ${maquina.proceso || 'GENERAL'}</span>
+          </span>
+        </div>
+        <div class="maquina-creador">
+          <i class="fas fa-user"></i> ${maquina.usuarioCreador}
+          <span class="fecha">${formatFechaSimple(maquina.fechaCreacion)}</span>
+        </div>
+      </div>
+      <div class="maquina-acciones">
+        <!-- Botón de validación (solo visible para jefes y cuando esté listo) -->
+        ${maquina.estadoGeneral === 'COMPLETADO' && maquina.maquinaId ? `
+  <button class="btn-validar-maquina" 
+          onclick="validarMaquinaCompleta('${maquina.maquinaId || ''}', '${maquina.maquinaNombre || ''}')" 
+          title="Validar limpieza completa">
+    <i class="fa-jelly fa-regular fa-thumbs-up"></i> Validar
+  </button>
+` : ''}
+        
+        <button class="btn-eliminar-maquina" 
+                onclick="eliminarPlaneacionMaquina('${maquina.maquinaId}', '${maquina.maquinaNombre}')" 
+                title="Eliminar máquina">
+          <i class="fas fa-trash"></i>
+        </button>
+
+        ${maquina.estadoGeneral === 'VALIDADO' ? `
+  <button class="btn-reporte-maquina" 
+          onclick="generarReporteMaquina('${maquina.maquinaId}', '${maquina.maquinaNombre}')" 
+          title="Generar reporte PDF">
+    <i class="fas fa-file-pdf"></i> Reporte
+  </button>
+` : ''}
+      </div>
+    </div>
+    
+        <!-- RESUMEN DE ESTADOS -->
+        <div class="estados-resumen">
+          <div class="estado-item">
+            <div class="estado-icono completado">
+              <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.completados}</div>
+              <div class="estado-label">Completados</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono en-proceso">
+              <i class="fas fa-spinner"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.enProceso}</div>
+              <div class="estado-label">En proceso</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono pendiente">
+              <i class="fas fa-clock"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.pendientes}</div>
+              <div class="estado-label">Pendientes</div>
+            </div>
+          </div>
+          <div class="estado-item">
+            <div class="estado-icono validado">
+              <i class="fa-jelly fa-regular fa-thumbs-up"></i>
+            </div>
+            <div class="estado-info">
+              <div class="estado-cantidad">${maquina.estadisticas.validados}</div>
+              <div class="estado-label">Validados</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- INFORMACIÓN DE VALIDACIÓN -->
+  <div class="validacion-resumen" id="validacion-info-${maquina.maquinaId}" 
+       style="${maquina.estadoGeneral === 'VALIDADO' ? '' : 'display: none;'}">
+    <div class="validacion-header">
+      <i class="fa-jelly fa-regular fa-thumbs-up" style="color: #10b981;"></i>
+      <span style="font-weight: 600; color: #065f46;">LIMPIEZA VALIDADA</span>
+    </div>
+    <div class="validacion-detalles">
+      <span id="validador-${maquina.maquinaId}"></span>
+      <span id="fecha-validacion-${maquina.maquinaId}"></span>
+    </div>
+  </div>
+    `;
+    
+    // Para cada componente
+    maquina.componentes.forEach(componente => {
+      html += `
+        <div class="componente-detallado">
+          <!-- ENCABEZADO DE COMPONENTE -->
+          <div class="componente-header">
+            <div class="componente-titulo">
+              <h5>${componente.nombre}</h5>
+              <span class="componente-estado ${componente.estado.toLowerCase()}">
+                ${componente.elementosCompletados}/${componente.totalElementos} elementos
+              </span>
+            </div>
+            <div class="componente-tipos">
+      `;
+      
+      // Mostrar tipos de limpieza del componente
+      if (componente.tiposLimpieza && componente.tiposLimpieza.length > 0) {
+        componente.tiposLimpieza.forEach(tipo => {
+          html += `<span class="tipo-badge ${tipo.toLowerCase()}">${tipo}</span>`;
+        });
+      }
+      
+      html += `
+            </div>
+          </div>
+          
+          <!-- TABLA DE ELEMENTOS -->
+          <div class="elementos-table-container">
+             <table class="elementos-table">
+    <thead>
+      <tr>
+        <th class="col-elemento">Elemento</th>
+        <th class="col-frecuencia">Frecuencia</th> <!-- NUEVA COLUMNA -->
+        <th class="col-tipos">Tipos de Limpieza</th>
+        <th class="col-estado">Estado</th>
+        <th class="col-proxima">Próxima Limpieza</th> <!-- NUEVA COLUMNA -->
+        <th class="col-responsable">Responsable</th>
+        <th class="col-fecha">Fecha</th>
+        <th class="col-validacion">Validación</th>
+      </tr>
+    </thead>
+    <tbody>
+`;
+      
+      // Para cada elemento
+      componente.elementos.forEach(elemento => {
+  // Clase CSS según estado de próxima limpieza
+  const estadoProximaClass = elemento.estadoProxima || 'normal';
+  
+  html += `
+    <tr class="elemento-fila ${elemento.estado.toLowerCase()}">
+      <td class="col-elemento">
+        <div class="elemento-nombre">${elemento.nombre}</div>
+      </td>
+      
+      <td class="col-frecuencia">
+        <div class="elemento-frecuencia">
+          <span class="frecuencia-badge ${elemento.frecuencia.toLowerCase()}">
+            ${elemento.frecuencia}
+          </span>
+        </div>
+      </td>
+      
+      <td class="col-tipos">
+        <div class="elemento-tipos">
+  `;
+  
+  // Mostrar tipos de limpieza del elemento
+  if (elemento.seco) html += '<span class="tipo-item seco">Seco</span>';
+  if (elemento.humedo) html += '<span class="tipo-item humedo">Húmedo</span>';
+  if (elemento.desinfeccion) html += '<span class="tipo-item desinfeccion">Desinfección</span>';
+  
+  html += `
+        </div>
+      </td>
+      
+      <td class="col-estado">
+        <span class="estado-elemento ${elemento.estado.toLowerCase()}">
+          ${obtenerIconoEstado(elemento.estado)} ${elemento.estado}
+        </span>
+      </td>
+      
+      <td class="col-proxima">
+        <div class="proxima-info ${estadoProximaClass}">
+          <div class="proxima-dias">${elemento.diasFaltantes} días</div>
+          <div class="proxima-fecha">${elemento.proximaFecha || 'No disponible'}</div>
+        </div>
+      </td>
+      
+      <td class="col-responsable">
+  `;
+  
+  if (elemento.responsables && elemento.responsables.length > 0) {
+    elemento.responsables.forEach((responsable, index) => {
+      if (index < 2) {
+        html += `<div class="responsable-item">${responsable}</div>`;
+      }
+    });
+    if (elemento.responsables.length > 2) {
+      html += `<div class="responsable-more">+${elemento.responsables.length - 2} más</div>`;
+    }
+  } else {
+    html += '<span class="text-muted">Sin asignar</span>';
+  }
+  
+  html += `
+      </td>
+      
+      <td class="col-fecha">
+  `;
+  
+  if (elemento.ultimaLimpieza) {
+    html += `<div class="fecha-limpieza">${formatFechaSimple(elemento.ultimaLimpieza)}</div>`;
+  } else {
+    html += '<span class="text-muted">No realizada</span>';
+  }
+  
+  html += `
+      </td>
+      
+      <td class="col-validacion">
+  `;
+  
+  if (elemento.validadoPor) {
+    html += `
+      <div class="validacion-info">
+        <div class="validador">${elemento.validadoPor}</div>
+        <div class="fecha-validacion">${formatFechaSimple(elemento.fechaValidacion)}</div>
+      </div>
+    `;
+  } else {
+    html += '<span class="text-muted">Pendiente</span>';
+  }
+  
+  html += `
+      </td>
+    </tr>
+  `;
+});
+      
+      html += `
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    });
+    
+    html += `</div>`; // Cierre de maquina-detallada
+  });
+  
+  html += `</div>`; // Cierre de consolidado-detallado
+  
+  container.innerHTML = html;
+}
+
+
+// Función para procesar máquinas con estados
+async function procesarMaquinasConEstados(planeaciones) {
+  // Primero, obtener todos los registros de limpieza para calcular estados
+  const registrosLimpieza = await obtenerTodosRegistrosLimpieza();
+  
+  const maquinasMap = new Map();
+  
+  // Procesar cada planeación
+  planeaciones.forEach(plan => {
+    const maquinaId = plan.maquinaId;
+    
+    if (!maquinasMap.has(maquinaId)) {
+      maquinasMap.set(maquinaId, {
+        maquinaId: maquinaId,
+        maquinaNombre: plan.maquinaNombre || 'Sin nombre',
+        frecuencia: plan.frecuencia,
+        usuarioCreador: plan.usuarioCreador || 'Sistema',
+        fechaCreacion: plan.fechaCreacion,
+        estadoGeneral: plan.estado || 'ACTIVA',
+        proceso: plan.procesoAsignado || 'GENERAL',
+        componentes: [],
+        estadisticas: {
+          total: 0,
+          completados: 0,
+          enProceso: 0,
+          pendientes: 0,
+          validados: 0
+        }
+      });
+    }
+    
+    const maquina = maquinasMap.get(maquinaId);
+    
+    // Procesar componentes y elementos
+    if (plan.elementosConfig && Array.isArray(plan.elementosConfig)) {
+      plan.elementosConfig.forEach(componenteConfig => {
+        const componenteNombre = componenteConfig.componenteNombre || 'Componente PRINCIPAL';
+        
+        let componente = maquina.componentes.find(c => c.nombre === componenteNombre);
+        if (!componente) {
+          componente = {
+            nombre: componenteNombre,
+            elementos: [],
+            totalElementos: 0,
+            elementosCompletados: 0,
+            elementosValidados: 0,
+            estado: 'pendiente',
+            tiposLimpieza: []
+          };
+          maquina.componentes.push(componente);
+        }
+        
+        // Procesar elementos del componente
+        if (componenteConfig.elementos && Array.isArray(componenteConfig.elementos)) {
+          componenteConfig.elementos.forEach(elementoConfig => {
+            const elementoId = elementoConfig.elementoId;
+            const elementoNombre = elementoConfig.elementoNombre || 'Elemento';
+            
+            // Buscar registros de limpieza para este elemento
+            const registrosElemento = registrosLimpieza.filter(r => 
+              r.elementoId === elementoId && r.maquinaId === maquinaId
+            );
+            
+            // Calcular estado del elemento
+            const estadoElemento = calcularEstadoElemento(registrosElemento);
+            
+            // Obtener frecuencia específica para este elemento
+            const frecuenciaElemento = plan.frecuencia || 'Mensual';
+            
+            // Calcular días faltantes para próxima limpieza
+            const infoProximaLimpieza = calcularProximaLimpiezaElemento(
+              registrosElemento, 
+              frecuenciaElemento
+            );
+            
+            // Extraer responsables y fechas
+            const responsables = [];
+            let ultimaLimpieza = null;
+            let validadoPor = null;
+            let fechaValidacion = null;
+            
+            registrosElemento.forEach(registro => {
+              if (registro.responsable && !responsables.includes(registro.responsable)) {
+                responsables.push(registro.responsable);
+              }
+              if (registro.fechaRealizacion) {
+                ultimaLimpieza = registro.fechaRealizacion;
+              }
+              if (registro.validadoPor) {
+                validadoPor = registro.validadoPor;
+                fechaValidacion = registro.fechaValidacion;
+              }
+            });
+            
+            const elemento = {
+              id: elementoId,
+              nombre: elementoNombre,
+              seco: elementoConfig.seco,
+              humedo: elementoConfig.humedo,
+              desinfeccion: elementoConfig.desinfeccion,
+              frecuencia: frecuenciaElemento, // ← NUEVO: Frecuencia específica
+              estado: estadoElemento,
+              responsables: responsables,
+              ultimaLimpieza: ultimaLimpieza,
+              validadoPor: validadoPor,
+              fechaValidacion: fechaValidacion,
+              diasFaltantes: infoProximaLimpieza.diasFaltantes, // ← NUEVO: Días faltantes
+              proximaFecha: infoProximaLimpieza.proximaFecha, // ← NUEVO: Próxima fecha
+              estadoProxima: infoProximaLimpieza.estado // ← NUEVO: Estado de próxima limpieza
+            };
+            
+            componente.elementos.push(elemento);
+            componente.totalElementos++;
+            
+            // Actualizar estadísticas del componente
+            if (estadoElemento === 'COMPLETADO' || estadoElemento === 'VALIDADO') {
+              componente.elementosCompletados++;
+            }
+            if (estadoElemento === 'VALIDADO') {
+              componente.elementosValidados++;
+            }
+            
+            // Actualizar tipos de limpieza del componente
+            if (elementoConfig.seco && !componente.tiposLimpieza.includes('SECO')) {
+              componente.tiposLimpieza.push('SECO');
+            }
+            if (elementoConfig.humedo && !componente.tiposLimpieza.includes('HUMEDO')) {
+              componente.tiposLimpieza.push('HUMEDO');
+            }
+            if (elementoConfig.desinfeccion && !componente.tiposLimpieza.includes('DESINFECCION')) {
+              componente.tiposLimpieza.push('DESINFECCION');
+            }
+            
+            // Actualizar estadísticas de la máquina
+            maquina.estadisticas.total++;
+            switch(estadoElemento) {
+              case 'COMPLETADO':
+                maquina.estadisticas.completados++;
+                break;
+              case 'EN-PROCESO':
+                maquina.estadisticas.enProceso++;
+                break;
+              case 'PENDIENTE':
+                maquina.estadisticas.pendientes++;
+                break;
+              case 'VALIDADO':
+                maquina.estadisticas.validados++;
+                break;
+            }
+          });
+        }
+        
+        // Determinar estado del componente
+        if (componente.elementosValidados === componente.totalElementos && componente.totalElementos > 0) {
+          componente.estado = 'VALIDADO';
+        } else if (componente.elementosCompletados === componente.totalElementos && componente.totalElementos > 0) {
+          componente.estado = 'COMPLETADO';
+        } else if (componente.elementosCompletados > 0) {
+          componente.estado = 'EN-PROCESO';
+        } else {
+          componente.estado = 'PENDIENTE';
+        }
+      });
+    }
+  });
+  
+  // Determinar estado general de cada máquina
+  maquinasMap.forEach(maquina => {
+    if (maquina.estadisticas.validados === maquina.estadisticas.total && maquina.estadisticas.total > 0) {
+      maquina.estadoGeneral = 'VALIDADO';
+    } else if (maquina.estadisticas.completados === maquina.estadisticas.total && maquina.estadisticas.total > 0) {
+      maquina.estadoGeneral = 'COMPLETADO';
+    } else if (maquina.estadisticas.completados > 0 || maquina.estadisticas.enProceso > 0) {
+      maquina.estadoGeneral = 'EN-PROCESO';
+    } else {
+      maquina.estadoGeneral = 'PENDIENTE';
+    }
+  });
+  
+  return Array.from(maquinasMap.values()).sort((a, b) => a.maquinaNombre.localeCompare(b.maquinaNombre));
+}
+
+// Función para calcular próxima limpieza de un elemento
+function calcularProximaLimpiezaElemento(registrosElemento, frecuencia) {
+  if (!registrosElemento || registrosElemento.length === 0) {
+    return {
+      diasFaltantes: 0,
+      proximaFecha: 'Inmediatamente',
+      estado: 'urgente',
+      texto: 'No se ha limpiado nunca'
+    };
+  }
+  
+  // Encontrar la última fecha de limpieza completada
+  const limpiezasCompletadas = registrosElemento.filter(r => 
+    r.estado === 'COMPLETADO' || r.estado === 'VALIDADO'
+  );
+  
+  if (limpiezasCompletadas.length === 0) {
+    return {
+      diasFaltantes: 0,
+      proximaFecha: 'Inmediatamente',
+      estado: 'urgente',
+      texto: 'Pendiente de limpieza'
+    };
+  }
+  
+  // Ordenar por fecha más reciente
+  limpiezasCompletadas.sort((a, b) => {
+    const fechaA = a.fechaRealizacion ? new Date(a.fechaRealizacion) : new Date(0);
+    const fechaB = b.fechaRealizacion ? new Date(b.fechaRealizacion) : new Date(0);
+    return fechaB - fechaA;
+  });
+  
+  // Usar una función segura para obtener la fecha sin problemas de zona horaria
+  const ultimaLimpieza = obtenerFechaSinZonaHoraria(limpiezasCompletadas[0].fechaRealizacion);
+  
+  // Calcular días según frecuencia
+  let diasFrecuencia;
+  switch(frecuencia.toLowerCase()) {
+    case 'mensual':
+      diasFrecuencia = 30;
+      break;
+    case 'trimestral':
+      diasFrecuencia = 90;
+      break;
+    case 'semestral':
+      diasFrecuencia = 180;
+      break;
+    case 'anual':
+      diasFrecuencia = 365;
+      break;
+    case 'diario':
+      diasFrecuencia = 1;
+      break;
+    case 'semanal':
+      diasFrecuencia = 7;
+      break;
+    default:
+      diasFrecuencia = 30; // Por defecto mensual
+  }
+  
+  // Calcular próxima fecha (sumar días sin problemas de zona horaria)
+  const proximaFecha = new Date(ultimaLimpieza);
+  proximaFecha.setDate(proximaFecha.getDate() + diasFrecuencia);
+  
+  // Obtener fecha de hoy sin hora (medianoche UTC)
+  const hoy = obtenerHoySinHora();
+  
+  // Calcular días faltantes correctamente
+  const diasFaltantes = Math.ceil((proximaFecha - hoy) / (1000 * 60 * 60 * 24));
+  
+  let estado = 'normal';
+  let texto = '';
+  
+  if (diasFaltantes <= 0) {
+    estado = 'vencido';
+    texto = `¡Vencido hace ${Math.abs(diasFaltantes)} días!`;
+  } else if (diasFaltantes <= 7) {
+    estado = 'proximo';
+    texto = `En ${diasFaltantes} días`;
+  } else {
+    estado = 'normal';
+    texto = `En ${diasFaltantes} días`;
+  }
+  
+  // Formatear fecha de próxima limpieza (sin problemas de zona horaria)
+  const proximaFechaFormateada = formatearFechaLocal(proximaFecha);
+  
+  return {
+    diasFaltantes: diasFaltantes,
+    proximaFecha: proximaFechaFormateada,
+    estado: estado,
+    texto: texto
+  };
+}
+
+</script>

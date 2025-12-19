@@ -1,0 +1,145 @@
+<script>
+
+
+function renderLimpiezaSections() {
+  const container = document.getElementById('limpieza-sections');
+  
+  if (!container) {
+    console.error('❌ Contenedor limpieza-sections no encontrado');
+    return;
+  }
+  
+  console.log('🎨 Renderizando secciones de limpieza:', currentElementoTiposLimpieza);
+  console.log('👤 Usuario actual:', currentUser);
+  
+  if (!currentElementoTiposLimpieza || currentElementoTiposLimpieza.length === 0) {
+    showNoRegistrosMessage();
+    return;
+  }
+  
+  // Verificar si está validada
+  const primeraLimpieza = currentElementoTiposLimpieza[0];
+  const estaValidada = primeraLimpieza.validadoPor && primeraLimpieza.validadoPor !== '';
+  
+  let html = '';
+  
+  // Mostrar información de validación si existe
+  if (estaValidada) {
+    html += `
+      <div class="validacion-info" style="
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: var(--border-radius);
+        padding: 16px;
+        margin-bottom: 24px;
+        text-align: center;
+      ">
+        <div style="font-weight: 600; color: #166534; margin-bottom: 8px;">
+          ✅ LIMPIEZA VALIDADA
+        </div>
+        <div style="font-size: 13px; color: #065F46;">
+          Validado por: <strong>${primeraLimpieza.validadoPor}</strong><br>
+          Fecha: ${primeraLimpieza.fechaValidacion || 'No especificada'}
+        </div>
+      </div>
+    `;
+  }
+  
+  // Agrupar por tipo de limpieza
+  const tiposMap = {};
+  currentElementoTiposLimpieza.forEach(reg => {
+    if (!tiposMap[reg.tipoLimpieza]) {
+      tiposMap[reg.tipoLimpieza] = reg;
+    }
+  });
+  
+  const tiposOrden = ['SECO', 'HUMEDO', 'DESINFECCION'];
+  const tiposNombres = {
+    'SECO': 'Limpieza Seco',
+    'HUMEDO': 'Limpieza Húmedo',
+    'DESINFECCION': 'Desinfección'
+  };
+  
+  tiposOrden.forEach(tipo => {
+    if (tiposMap[tipo]) {
+      const reg = tiposMap[tipo];
+      const isCompleted = reg.estado === 'COMPLETADO';
+      const estaValidada = reg.validadoPor && reg.validadoPor !== '';
+      
+      // Determinar el valor del responsable
+      // Si ya hay un responsable guardado, usarlo, sino usar el nombre del usuario actual
+      const responsableValue = reg.responsable && reg.responsable !== '' ? 
+        reg.responsable : 
+        (currentUser ? currentUser.nombre : '');
+      
+      html += `
+        <div class="limpieza-section">
+          <div class="section-header">
+            <span class="section-name">${tiposNombres[tipo]}</span>
+            <input type="checkbox" class="section-checkbox" id="check-${tipo}" 
+              ${isCompleted ? 'checked' : ''} 
+              ${estaValidada ? 'disabled' : ''}
+              onchange="handleLimpiezaCheckbox('${reg.id}', '${tipo}', this.checked)">
+            <div class="section-line"></div>
+          </div>
+          <div class="section-form ${isCompleted || estaValidada ? 'disabled' : ''}" id="form-${tipo}">
+            <div class="form-group">
+              <label class="form-label">Nombre del Responsable</label>
+              <input type="text" class="input-field" id="responsable-${tipo}" 
+                placeholder="Nombre..." value="${responsableValue}" 
+                ${isCompleted || estaValidada ? 'disabled' : ''}
+                ${!isCompleted && !estaValidada ? 'readonly' : ''} <!-- Hacer solo lectura si no completado -->
+                <style="${!isCompleted && !estaValidada ? 'background-color: #f3f4f6;' : ''}">
+              ${!isCompleted && !estaValidada ? '<small class="form-hint">El nombre se asigna automáticamente</small>' : ''}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fecha en que se realizó</label>
+              <input type="date" class="input-field" id="fecha-${tipo}" 
+                value="${reg.fechaRealizacion || ''}" 
+                ${isCompleted || estaValidada ? 'disabled' : ''}>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observaciones</label>
+              <textarea class="textarea-field" id="observaciones-${tipo}" 
+                placeholder="Observaciones..." 
+                ${isCompleted || estaValidada ? 'disabled' : ''}>${reg.observaciones || ''}</textarea>
+            </div>
+            ${estaValidada ? `
+              <div class="validacion-detalle" style="
+                background: rgba(34, 197, 94, 0.05);
+                border: 1px solid rgba(34, 197, 94, 0.2);
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 12px;
+                font-size: 12px;
+                color: #065F46;
+              ">
+                <strong>Validado por:</strong> ${reg.validadoPor}<br>
+                <strong>Fecha validación:</strong> ${reg.fechaValidacion || 'No especificada'}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+  });
+  
+  container.innerHTML = html;
+  console.log('✅ Secciones de limpieza renderizadas correctamente');
+  console.log('📝 Nombre del usuario cargado automáticamente:', currentUser ? currentUser.nombre : 'No hay usuario');
+}
+
+function handleLimpiezaCheckbox(registroId, tipo, isChecked) {
+  if (isChecked) {
+    pendingCheckboxData = {
+      registroId: registroId,
+      tipo: tipo
+    };
+    
+    document.getElementById('modal-message').textContent = 
+      `¿Está seguro que desea marcar la limpieza "${tipo}" como completada? Esta acción no se puede deshacer.`;
+    document.getElementById('confirm-modal').classList.remove('hidden');
+  }
+}
+
+</script>

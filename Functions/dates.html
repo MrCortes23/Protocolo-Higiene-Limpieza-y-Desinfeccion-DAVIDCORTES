@@ -1,0 +1,77 @@
+<script>
+
+function obtenerFechaSinZonaHoraria(fechaString) {
+  if (!fechaString) return new Date();
+  
+  // Si la fecha ya es un objeto Date, devolver copia
+  if (fechaString instanceof Date) {
+    return new Date(fechaString.getTime());
+  }
+  
+  // Si es string, parsear correctamente
+  const fecha = new Date(fechaString);
+  
+  // Crear nueva fecha ajustando la zona horaria
+  const fechaAjustada = new Date(
+    fecha.getUTCFullYear(),
+    fecha.getUTCMonth(),
+    fecha.getUTCDate(),
+    12, 0, 0 // Poner a mediodía para evitar problemas de zona horaria
+  );
+  
+  return fechaAjustada;
+}
+
+// Función para obtener la fecha de hoy sin hora (medianoche local)
+function obtenerHoySinHora() {
+  const hoy = new Date();
+  // Establecer a medianoche en hora local
+  return new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+}
+
+// Función para formatear fecha en formato local sin problemas
+function formatearFechaLocal(fecha) {
+  if (!fecha) return '';
+  
+  // Asegurarse de que es un objeto Date
+  const fechaObj = fecha instanceof Date ? fecha : new Date(fecha);
+  
+  // Formatear en español
+  return fechaObj.toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: '2-digit', 
+    year: 'numeric',
+    timeZone: 'UTC' // Usar UTC para evitar desplazamientos
+  });
+}
+
+function formatFechaSimple(fechaString) {
+  if (!fechaString) return '';
+  
+  try {
+    // Usar la función segura para evitar problemas de zona horaria
+    const fecha = obtenerFechaSinZonaHoraria(fechaString);
+    
+    // Formatear sin problemas
+    return fecha.toLocaleDateString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC'
+    });
+  } catch (e) {
+    console.warn('⚠️ Error formateando fecha:', fechaString, e);
+    // Intentar formato simple
+    try {
+      const partes = fechaString.split('-');
+      if (partes.length === 3) {
+        return `${partes[2]}/${partes[1]}/${partes[0]}`;
+      }
+      return fechaString;
+    } catch {
+      return fechaString;
+    }
+  }
+}
+
+</script>

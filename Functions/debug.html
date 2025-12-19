@@ -1,0 +1,49 @@
+<script>
+
+function debugElementoSeleccionado() {
+  console.log('🔍 DEBUG Elemento Seleccionado:');
+  console.log('Maquina ID:', currentMaquinaId, 'Tipo:', typeof currentMaquinaId);
+  console.log('Elemento ID:', currentElementoId, 'Tipo:', typeof currentElementoId);
+  console.log('Maquina Nombre:', currentMaquinaNombre);
+  console.log('Elemento Nombre:', currentElementoNombre);
+  
+  // Primero probar con la función de debug específica
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('🐛 DEBUG ESPECÍFICO Resultado:', result);
+    })
+    .debugRegistrosElemento(currentMaquinaId, currentElementoId);
+  
+  // Luego con la función normal - CAMBIADO TAMBIÉN
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('📊 Registros encontrados (función normal):', result);
+      if (result && result.success) {
+        console.log('Total registros:', result.registros.length);
+        result.registros.forEach(reg => {
+          console.log('Registro:', reg);
+        });
+      } else {
+        console.log('Error:', result ? result.message : 'Resultado nulo');
+      }
+    })
+    .obtenerRegistrosLimpieza(currentMaquinaId, currentElementoId); // ← CAMBIADO AQUÍ
+}
+
+function ejecutarDiagnostico() {
+  console.log('🛠️ Ejecutando diagnóstico...');
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      console.log('📋 Resultado diagnóstico:', result);
+      if (result.success) {
+        showAlert("success", "Diagnóstico completado", `Revisa la consola para detalles.\nTotal registros: ${result.diagnostico.totalRegistros}`);
+} else {
+  showAlert('error', 'Error en diagnóstico', result.message);
+}
+    })
+    .diagnosticarRegistros();
+}
+
+</script>
+

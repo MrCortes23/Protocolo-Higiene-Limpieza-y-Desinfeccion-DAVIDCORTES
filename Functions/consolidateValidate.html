@@ -1,0 +1,231 @@
+<script>
+
+function validarMaquinaCompleta(maquinaId, maquinaNombre) {
+  // VALIDACIÓN CRÍTICA: Verificar que maquinaId no sea undefined
+  console.log('🔍 Validar máquina llamado con:', { maquinaId, maquinaNombre });
+  
+  if (!maquinaId || maquinaId === 'undefined' || maquinaId.trim() === '') {
+    console.error('❌ ERROR: maquinaId es inválido:', maquinaId);
+    showAlert('error', 'Error', 'ID de máquina inválido. No se puede validar.');
+    return;
+  }
+  
+  if (!currentUser || currentUser.rol !== 'jefe') {
+    showAlert('error', 'Permiso denegado', 'Solo los jefes pueden validar limpiezas completadas');
+    return;
+  }
+  
+  showLoading();
+  
+  console.log('✅ Parámetros válidos, llamando backend con maquinaId:', maquinaId);
+  
+  // Obtener información de la máquina
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      console.log('📥 Respuesta de obtenerInfoValidacionMaquina:', result);
+      
+      if (result && result.success) {
+        console.log('📊 Información de máquina obtenida:', result.datos);
+        mostrarModalValidacionMaquina(maquinaId, maquinaNombre, result.datos);
+      } else {
+        console.error('❌ Error obteniendo info:', result ? result.message : 'Sin respuesta');
+        showAlert('error', 'Error', result ? result.message : 'Error al obtener información');
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      console.error('❌ Error de conexión:', error);
+      showAlert('error', 'Error de conexión', error.message);
+    })
+    .obtenerInfoValidacionMaquina(maquinaId);
+}
+
+function mostrarModalValidacionMaquina(maquinaId, maquinaNombre, datos) {
+  window.pendingMaquinaValidation = {
+    maquinaId: maquinaId,
+    maquinaNombre: maquinaNombre,
+    datos: datos
+  };
+  
+  const puedeValidar = datos.puedeValidar;
+  const detalles = `
+    <strong>¿Está seguro que desea validar toda la limpieza de esta máquina?</strong>
+    <br><br>
+    <div style="background: ${puedeValidar ? '#f0f9ff' : '#fef3c7'}; padding: 12px; border-radius: 6px; border-left: 4px solid ${puedeValidar ? '#0ea5e9' : '#f59e0b'}; margin: 10px 0;">
+      <div style="font-weight: 600; color: ${puedeValidar ? '#0369a1' : '#92400e'}; margin-bottom: 4px;">
+        <i class="fas fa-industry"></i> MÁQUINA A VALIDAR:
+      </div>
+      <div style="color: ${puedeValidar ? '#0c4a6e' : '#78350f'}; font-size: 14px;">
+        <strong>${maquinaNombre}</strong> (ID: ${maquinaId})
+      </div>
+    </div>
+    
+    <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+      <p style="margin: 8px 0; font-weight: 600;">Estado actual de la limpieza:</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0;">
+        <div style="background: #dcfce7; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #166534;">Completados</div>
+          <div style="font-weight: 600; color: #166534;">${datos.completados}/${datos.total}</div>
+        </div>
+        <div style="background: #fef3c7; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #92400e;">Pendientes</div>
+          <div style="font-weight: 600; color: #92400e;">${datos.pendientes}</div>
+        </div>
+        ${datos.yaValidados > 0 ? `
+        <div style="background: #dbeafe; padding: 8px; border-radius: 4px;">
+          <div style="font-size: 11px; color: #1e40af;">Ya validados</div>
+          <div style="font-weight: 600; color: #1e40af;">${datos.yaValidados}</div>
+        </div>
+        ` : ''}
+      </div>
+      
+      ${puedeValidar ? `
+        <div style="background: #ecfdf5; padding: 10px; border-radius: 6px; border: 1px solid #d1fae5; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #065f46;">
+            <i class="fas fa-check-circle"></i>
+            <span>✅ Todos los elementos están completamente limpiados y listos para validar</span>
+          </div>
+        </div>
+      ` : datos.completados === datos.total && datos.yaValidados > 0 ? `
+        <div style="background: #e0e7ff; padding: 10px; border-radius: 6px; border: 1px solid #c7d2fe; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #3730a3;">
+            <i class="fas fa-info-circle"></i>
+            <span>ℹ️ Esta máquina ya tiene ${datos.yaValidados} elemento(s) validados</span>
+          </div>
+        </div>
+      ` : `
+        <div style="background: #fef3c7; padding: 10px; border-radius: 6px; border: 1px solid #fde68a; margin: 12px 0;">
+          <div style="display: flex; align-items: center; gap: 8px; color: #92400e;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>⚠️ No se puede validar. Aún hay ${datos.pendientes} elemento(s) pendientes.</span>
+          </div>
+        </div>
+      `}
+      
+      ${puedeValidar ? `
+        <p style="margin: 8px 0; color: #059669; font-weight: 600;">
+          <i class="fa-jelly fa-regular fa-thumbs-up"></i> Esta acción registrará su nombre como validador de todos los elementos.
+        </p>
+      ` : ''}
+    </div>
+  `;
+  
+  document.getElementById('modal-message').innerHTML = detalles;
+  
+  // Cambiar el título del modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Validar Limpieza Completa';
+  }
+  
+  // Configurar botones del modal
+  const confirmBtn = document.querySelector('.btn-confirm');
+  const cancelBtn = document.querySelector('.btn-cancel');
+  
+  if (confirmBtn) {
+    confirmBtn.disabled = !puedeValidar;
+    confirmBtn.style.opacity = puedeValidar ? '1' : '0.5';
+    confirmBtn.style.cursor = puedeValidar ? 'pointer' : 'not-allowed';
+    confirmBtn.textContent = 'Validar';
+    confirmBtn.style.backgroundColor = puedeValidar ? '#10b981' : '#9ca3af';
+    confirmBtn.style.borderColor = puedeValidar ? '#10b981' : '#9ca3af';
+  }
+  
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Mostrar el modal
+  document.getElementById('confirm-modal').classList.remove('hidden');
+}
+
+function ejecutarValidacionMaquina() {
+  if (!window.pendingMaquinaValidation) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre, datos } = window.pendingMaquinaValidation;
+  
+  // Verificar nuevamente que se pueda validar
+  if (!datos.puedeValidar) {
+    showAlert('error', 'No se puede validar', 
+      `La máquina no cumple con los requisitos para validación.\n` +
+      `Completados: ${datos.completados}/${datos.total}\n` +
+      `Ya validados: ${datos.yaValidados}`);
+    cerrarModal();
+    return;
+  }
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando máquina completa:', { maquinaId, maquinaNombre });
+  
+  // Usar la nueva función del backend
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", 
+          `La máquina "${maquinaNombre}" ha sido validada completamente.\n` +
+          `Registros actualizados: ${result.registrosActualizados || 0}`);
+        
+        // Recargar el consolidado
+        loadPlaneaciones();
+        
+        // Actualizar estados en sidebar
+        actualizarEstadosSidebar();
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+      window.pendingMaquinaValidation = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingMaquinaValidation = null;
+    })
+    .validarMaquinaCompletaPorJefe(maquinaId, currentUser.nombre); // ¡CAMBIAR AQUÍ!
+}
+
+function ejecutarValidacionMaquina() {
+  if (!window.pendingMaquinaValidation) {
+    cerrarModal();
+    return;
+  }
+  
+  const { maquinaId, maquinaNombre } = window.pendingMaquinaValidation;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando máquina completa:', { maquinaId, maquinaNombre });
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", 
+          `La máquina "${maquinaNombre}" ha sido validada completamente.\n` +
+          `Elementos validados: ${result.elementosValidados || 0}`);
+        
+        // Recargar el consolidado
+        loadPlaneaciones();
+        
+        // Actualizar estados en sidebar
+        actualizarEstadosSidebar();
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+      window.pendingMaquinaValidation = null;
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+      window.pendingMaquinaValidation = null;
+    })
+    .validarMaquinaCompletaPorJefe(maquinaId, currentUser.nombre);
+}
+</script>

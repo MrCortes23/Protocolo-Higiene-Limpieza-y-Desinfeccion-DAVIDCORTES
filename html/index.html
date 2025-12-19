@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Sistema PHLYD</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-   <?!= include('styles'); ?>
+   <?!= include('html/styles'); ?>
 </head>
 <body>
   <!-- LOGIN VIEW -->
@@ -181,6 +181,31 @@
     <div class="loading-spinner"></div>
   </div>
 
-  <?!= include('javascript'); ?>
+  <?!= include('Functions/Limpieza/confirmCleaning'); ?>
+  <?!= include('Functions/Limpieza/confirmCleaningOperator'); ?>
+  <?!= include('Functions/Limpieza/elements'); ?>
+  <?!= include('Functions/Limpieza/elementsDetail'); ?>
+  <?!= include('Functions/Limpieza/sections'); ?>
+  <?!= include('Functions/Limpieza/Validations'); ?>
+  <?!= include('Functions/Planeacion/configs'); ?>
+  <?!= include('Functions/Planeacion/consolidate'); ?>
+  <?!= include('Functions/Planeacion/delete'); ?>
+  <?!= include('Functions/Planeacion/planeation'); ?>
+  <?!= include('Functions/Planeacion/treePlaneation'); ?>
+  <?!= include('Functions/alerts'); ?>
+  <?!= include('Functions/auth'); ?>
+  <?!= include('Functions/consolidateValidate'); ?>
+  <?!= include('Functions/dates'); ?>
+  <?!= include('Functions/debug'); ?>
+  <?!= include('Functions/initload'); ?>
+  <?!= include('Functions/report'); ?>
+  <?!= include('Functions/shifts'); ?>
+  <?!= include('Functions/sidebar'); ?>
+  <?!= include('Functions/states'); ?>
+  <?!= include('Functions/stats'); ?>
+  <?!= include('Functions/tabs'); ?>
+  <?!= include('Functions/utils'); ?>
+  <?!= include('Functions/variables'); ?>
+  
 </body>
 </html>

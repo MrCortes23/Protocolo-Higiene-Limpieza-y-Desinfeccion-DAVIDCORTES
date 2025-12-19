@@ -1,0 +1,110 @@
+<script>
+    
+function verificarEstadoValidacion() {
+  const btnValidarJefe = document.getElementById('btn-validar-jefe');
+  const btnFinalizar = document.getElementById('btn-finalizar');
+  
+  // VERIFICAR SI LOS ELEMENTOS EXISTEN
+  if (!btnValidarJefe || !btnFinalizar) {
+    console.log('⚠️ Elementos de validación no encontrados. Puede no estar en la vista de elemento.');
+    return; // Salir si no existen los elementos
+  }
+  
+  // Ocultar ambos botones inicialmente
+  btnValidarJefe.classList.add('hidden');
+  btnFinalizar.classList.add('hidden');
+  
+  // Verificar si el usuario es jefe
+  if (currentUser && currentUser.rol === 'jefe') {
+    console.log('👑 Usuario es jefe, verificando estado de limpieza...');
+    
+    // Verificar si todas las limpiezas están completadas pero no validadas
+    const todasCompletadas = currentElementoTiposLimpieza.every(r => r.estado === 'COMPLETADO');
+    const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+    
+    console.log('📊 Estado limpieza - Todas completadas:', todasCompletadas, 'Ya validada:', yaValidada);
+    
+    if (todasCompletadas && !yaValidada) {
+      // Mostrar botón de validación para jefes
+      btnValidarJefe.classList.remove('hidden');
+      console.log('✅ Mostrando botón de validación para jefe');
+    }
+  } else {
+    console.log('👤 Usuario no es jefe, rol:', currentUser ? currentUser.rol : 'No definido');
+  }
+  
+  // Mostrar botón de finalizar normal para todos los usuarios
+  // cuando hay limpiezas pendientes
+  const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+  if (pendientes.length > 0) {
+    btnFinalizar.classList.remove('hidden');
+  }
+}
+
+function validarLimpiezaCompleta() {
+  if (!currentUser || currentUser.rol !== 'jefe') {
+    showAlert('error', 'Permiso denegado', 'Solo los jefes pueden validar limpiezas completadas');
+    return;
+  }
+  
+  // Verificar que todas las limpiezas estén completadas
+  const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+  if (pendientes.length > 0) {
+    showAlert('error', 'No se puede validar', `Aún hay ${pendientes.length} limpieza(s) pendiente(s).`);
+    return;
+  }
+  
+  // Verificar que no esté ya validada
+  const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+  if (yaValidada) {
+    showAlert("info", "Ya validado", `Esta limpieza ya fue validada por: ${currentElementoTiposLimpieza[0].validadoPor}`);
+    return;
+  }
+  
+  // Mostrar modal de confirmación
+  document.getElementById('modal-message').textContent = 
+    `¿Está seguro que desea validar esta limpieza completa?\n\n` +
+    `Elemento: ${currentElementoNombre}\n` +
+    `Máquina: ${currentMaquinaNombre}\n\n` +
+    `Esta acción registrará su nombre como validador y no se puede deshacer.`;
+  
+  document.getElementById('confirm-modal').classList.remove('hidden');
+  
+  // Configurar el callback para la validación
+  pendingValidation = true;
+}
+
+// Función específica para confirmar validación
+function confirmarValidacion() {
+  if (!pendingValidation) return;
+  
+  cerrarModal();
+  showLoading();
+  
+  console.log('✅ Validando limpieza completa...', {
+    maquinaId: currentMaquinaId,
+    elementoId: currentElementoId,
+    validador: currentUser.nombre
+  });
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      hideLoading();
+      if (result && result.success) {
+        showAlert("success", "¡Validación exitosa!", `Limpieza validada correctamente por ${currentUser.nombre}`);
+        loadElementoTiposLimpieza();
+        actualizarEstadosSidebar(); // Actualizar estados
+      } else {
+        showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+      }
+    })
+    .withFailureHandler(function(error) {
+      hideLoading();
+      showAlert('error', 'Error de conexión', error.message);
+    })
+    .validarLimpiezaCompleta(currentMaquinaId, currentElementoId, currentUser.nombre);
+  
+  pendingValidation = false;
+}
+
+</script>

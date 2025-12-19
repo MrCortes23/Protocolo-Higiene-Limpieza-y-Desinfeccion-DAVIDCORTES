@@ -1,0 +1,179 @@
+<script>
+
+function renderMaquinasTree() {
+  const container = document.getElementById('maquinas-tree');
+  container.innerHTML = '';
+  
+  if (!maquinasData || maquinasData.length === 0) {
+    container.innerHTML = '<p class="config-placeholder">No hay máquinas disponibles</p>';
+    return;
+  }
+  
+  maquinasData.forEach((maquina, maquinaIndex) => {
+    const maquinaDiv = document.createElement('div');
+    maquinaDiv.className = 'tree-maquina';
+    
+    const treeId = 'tree-maq-' + maquina.id + '-' + maquinaIndex;
+    
+    let componentesHtml = '';
+    
+    if (maquina.componentes && maquina.componentes.length > 0) {
+      componentesHtml = maquina.componentes.map((componente, compIndex) => {
+        const compTreeId = `tree-comp-${maquina.id}-${componente.id}-${compIndex}`;
+        
+        const elementosHtml = (componente.elementos || []).map((elem) => `
+          <div class="tree-elemento" id="tree-elem-${elem.id}">
+            <input type="checkbox" id="check-elem-${elem.id}" 
+              onclick="toggleElementoSelection('${maquina.id}', '${elem.id}', '${maquina.nombre}', '${elem.nombre}', '${componente.nombre}')">
+            <span>${elem.nombre}</span>
+          </div>
+        `).join('');
+        
+        return `
+          <div class="tree-componente">
+            <div class="tree-componente-header" onclick="toggleTreeComponente('${compTreeId}', event)">
+              <input type="checkbox" id="check-comp-${maquina.id}-${componente.id}" 
+                onclick="event.stopPropagation(); toggleComponenteSelection('${maquina.id}', '${componente.id}')">
+              <span>${componente.nombre}</span>
+              <span class="tree-arrow" id="arrow-${compTreeId}">▼</span>
+            </div>
+            <div id="${compTreeId}" class="tree-elementos hidden">
+              ${elementosHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    maquinaDiv.innerHTML = `
+      <div class="tree-maquina-header" onclick="toggleTreeMaquina('${treeId}', event)">
+        <input type="checkbox" id="check-maq-${maquina.id}" 
+          onclick="event.stopPropagation(); toggleMaquinaSelection('${maquina.id}')">
+        <span>${maquina.nombre}</span>
+        <span class="tree-arrow" id="arrow-${treeId}">▼</span>
+      </div>
+      <div id="${treeId}" class="tree-componentes hidden">
+        ${componentesHtml}
+      </div>
+    `;
+    container.appendChild(maquinaDiv);
+  });
+}
+
+function toggleTreeComponente(compTreeId, event) {
+  // Solo prevenir si el click fue directamente en el checkbox
+  if (event && event.target.type === 'checkbox') {
+    return;
+  }
+  
+  // Reutilizar la lógica existente
+  const tree = document.getElementById(compTreeId);
+  const arrow = document.getElementById('arrow-' + compTreeId);
+  if (tree) tree.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+function toggleComponenteSelection(maquinaId, componenteId) {
+  const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componenteId);
+  if (!compCheck) return;
+  
+  const isChecked = compCheck.checked;
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  
+  if (!maquina || !maquina.componentes) return;
+  
+  const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+  if (!componente || !componente.elementos) return;
+  
+  // Seleccionar/deseleccionar todos los elementos del componente
+  componente.elementos.forEach(elem => {
+    const elemCheck = document.getElementById('check-elem-' + elem.id);
+    if (elemCheck) {
+      elemCheck.checked = isChecked;
+      if (isChecked) {
+        addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+      } else {
+        removeElementoFromConfig(elem.id);
+      }
+    }
+  });
+  
+  // Actualizar estado de la máquina
+  updateMaquinaCheckState(maquinaId);
+  updateElementosConfigUI();
+}
+
+function toggleTreeMaquina(treeId, event) {
+  // Solo prevenir si el click fue directamente en el checkbox
+  if (event && event.target.type === 'checkbox') {
+    return;
+  }
+  
+  // Reutilizar la lógica existente
+  const tree = document.getElementById(treeId);
+  const arrow = document.getElementById('arrow-' + treeId);
+  if (tree) tree.classList.toggle('hidden');
+  if (arrow) arrow.classList.toggle('rotated');
+}
+
+function toggleMaquinaSelection(maquinaId) {
+  const maquinaCheck = document.getElementById('check-maq-' + maquinaId);
+  if (!maquinaCheck) return;
+  
+  const isChecked = maquinaCheck.checked;
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  
+  if (!maquina || !maquina.componentes) return;
+  
+  // Seleccionar/deseleccionar todos los componentes y elementos
+  maquina.componentes.forEach(componente => {
+    const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+    if (compCheck) {
+      compCheck.checked = isChecked;
+    }
+    
+    // Seleccionar/deseleccionar elementos del componente
+    componente.elementos.forEach(elem => {
+      const elemCheck = document.getElementById('check-elem-' + elem.id);
+      if (elemCheck) {
+        elemCheck.checked = isChecked;
+        if (isChecked) {
+          addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+        } else {
+          removeElementoFromConfig(elem.id);
+        }
+      }
+    });
+  });
+  
+  updateElementosConfigUI();
+}
+
+function toggleElementoSelection(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+  const elemCheck = document.getElementById('check-elem-' + elementoId);
+  if (!elemCheck) return;
+  
+  if (elemCheck.checked) {
+    addElementoToConfig(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre);
+  } else {
+    removeElementoFromConfig(elementoId);
+  }
+  
+  // Actualizar estado del componente y máquina
+  const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+  if (maquina && maquina.componentes) {
+    // Encontrar a qué componente pertenece este elemento
+    for (const componente of maquina.componentes) {
+      const elemento = componente.elementos.find(e => e.id.toString() === elementoId.toString());
+      if (elemento) {
+        updateComponenteCheckState(maquinaId, componente.id);
+        break;
+      }
+    }
+  }
+  
+  updateMaquinaCheckState(maquinaId);
+  updateElementosConfigUI();
+}
+
+</script>

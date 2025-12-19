@@ -1,0 +1,112 @@
+<script>
+    
+function confirmarModal() {
+  // Si hay finalización completa pendiente
+  if (window.pendingFinalizarCompleto) {
+    confirmarFinalizarCompleto();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay reporte de máquina pendiente
+  if (window.pendingReporteMaquina) {
+    ejecutarGenerarReporteMaquina();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay validación pendiente
+  if (pendingValidation) {
+    confirmarValidacion();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay checkbox de limpieza pendiente
+  if (pendingCheckboxData) {
+    confirmarLimpieza();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay eliminación de máquina pendiente
+  if (window.pendingMaquinaDelete) {
+    ejecutarEliminacionMaquina();
+    cerrarModal();
+    return;
+  }
+  
+  // Si hay validación de máquina pendiente
+  if (window.pendingMaquinaValidation) {
+    ejecutarValidacionMaquina();
+    cerrarModal();
+    return;
+  }
+}
+
+function cerrarModal() {
+  document.getElementById('confirm-modal').classList.add('hidden');
+  
+  // Restablecer el modal
+  const modalTitle = document.querySelector('.modal-title');
+  if (modalTitle) {
+    modalTitle.textContent = 'Confirmar Validación';
+  }
+  
+  const confirmBtn = document.querySelector('.btn-confirm');
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.style.opacity = '1';
+    confirmBtn.style.cursor = 'pointer';
+    confirmBtn.textContent = 'Confirmar';
+    confirmBtn.style.backgroundColor = '';
+    confirmBtn.style.borderColor = '';
+  }
+  
+  const cancelBtn = document.querySelector('.btn-cancel');
+  if (cancelBtn) {
+    cancelBtn.textContent = 'Cancelar';
+  }
+  
+  // Limpiar todos los estados pendientes
+  if (pendingCheckboxData) {
+    const checkbox = document.getElementById('check-' + pendingCheckboxData.tipo);
+    if (checkbox) checkbox.checked = false;
+    pendingCheckboxData = null;
+  }
+  
+  if (window.pendingMaquinaDelete) {
+    window.pendingMaquinaDelete = null;
+  }
+  
+  if (window.pendingMaquinaValidation) {
+    window.pendingMaquinaValidation = null;
+  }
+  
+  if (window.pendingReporteMaquina) {
+    window.pendingReporteMaquina = null;
+  }
+  
+  if (window.pendingFinalizarCompleto) {
+    window.pendingFinalizarCompleto = null;
+  }
+  
+  if (window.pendingReporte) {
+    window.pendingReporte = null;
+  }
+  
+  pendingValidation = false;
+  
+  // Limpiar campos de confirmación
+  const confirmInput = document.getElementById('confirm-delete-input');
+  if (confirmInput) {
+    confirmInput.value = '';
+  }
+  
+  const errorMsg = document.getElementById('confirm-delete-error');
+  if (errorMsg) {
+    errorMsg.style.display = 'none';
+  }
+}
+
+</script>

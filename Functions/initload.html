@@ -1,0 +1,40 @@
+<script>
+
+function loadInitialData() {
+  showLoading();
+  
+  // Usar la nueva función unificada
+  google.script.run
+    .withSuccessHandler(onMaquinasLoaded)
+    .withFailureHandler(onDataError)
+    .obtenerMaquinasConElementos(currentUser.proceso); // ¡CAMBIA AQUÍ!
+}
+
+
+function onMaquinasLoaded(result) {
+  if (result && result.success) {
+    maquinasData = result.maquinas || [];
+    
+    // Cargar estados y luego renderizar
+    cargarEstadosElementos().then(() => {
+      renderSidebarMaquinas();
+      renderMaquinasTree();
+      loadEstadisticas();
+      loadPlaneaciones();
+      hideLoading();
+    });
+  } else {
+    hideLoading();
+    console.error('Error cargando máquinas:', result ? result.message : 'Sin respuesta');
+    maquinasData = [];
+    renderSidebarMaquinas();
+    renderMaquinasTree();
+  }
+}
+
+function onDataError(error) {
+  hideLoading();
+  console.error('Error cargando datos:', error);
+}
+
+</script>
