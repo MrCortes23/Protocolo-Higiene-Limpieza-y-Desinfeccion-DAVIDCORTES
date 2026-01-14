@@ -19,7 +19,7 @@ const CORREOS_POR_TURNO = {
 
 function obtenerCorreoPorTurno(turno) {
   turno = turno.toUpperCase();
-  return CORREOS_POR_TURNO[turno] || 'correo.defecto@tudominio.com';
+  return CORREOS_POR_TURNO[turno] || 'pragestionhumana@pastascomarrico.com';
 }
 
 function obtenerTurnoContrario(turno) {
@@ -38,7 +38,7 @@ function doGet(e) {
   const title = 'PHLYD';
   const faviconUrl = 'https://alimentosdoria.com/wp-content/uploads/2023/01/logo-doria.png';
   
-  return HtmlService.createTemplateFromFile('html/index')
+  return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle(title)
     .setFaviconUrl(faviconUrl)
@@ -251,7 +251,7 @@ function obtenerMaquinasConElementosPorProceso(procesoUsuario) {
 // ==================== FUNCIONES DE PLANEACIÓN ====================
 function guardarPlaneacion(datos) {
   try {
-    console.log('💾 Guardando planeación con estructura jerárquica:', datos);
+    console.log('💾 Guardando planeación con responsable:', datos.responsable);
     
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sheet = ss.getSheetByName(SHEETS.PLANEACION);
@@ -263,15 +263,20 @@ function guardarPlaneacion(datos) {
     const fechaCreacion = new Date();
     const id = Utilities.getUuid();
     
-    // Validar que tenemos datos de elementos
-    if (!datos.elementosConfig || datos.elementosConfig.length === 0) {
-      return { success: false, message: 'No hay elementos configurados para guardar' };
+    // Verificar última columna para ver si ya existe RESPONSABLE
+    const lastColumn = sheet.getLastColumn();
+    const headers = sheet.getRange(1, 1, 1, lastColumn).getValues()[0];
+    
+    // Si no existe columna RESPONSABLE, agregarla
+    if (headers.indexOf('RESPONSABLE') === -1) {
+      sheet.getRange(1, lastColumn + 1).setValue('RESPONSABLE');
     }
     
-    console.log('📋 ElementosConfig a guardar:', datos.elementosConfig);
+    const responsableCol = headers.indexOf('RESPONSABLE') !== -1 ? 
+                         headers.indexOf('RESPONSABLE') + 1 : lastColumn + 1;
     
-    // Guardar planeación principal con estructura jerárquica
-    sheet.appendRow([
+    // Preparar fila
+    const nuevaFila = [
       id,
       datos.maquinaId || '',
       datos.maquinaNombre || '',
@@ -283,11 +288,20 @@ function guardarPlaneacion(datos) {
       fechaCreacion,
       datos.usuarioCreador || 'Sistema',
       'ACTIVA'
-    ]);
+    ];
+    
+    // Agregar fila
+    sheet.appendRow(nuevaFila);
+    
+    // Si se agregó columna nueva, llenar responsable en la fila recién agregada
+    if (responsableCol > nuevaFila.length) {
+      const lastRow = sheet.getLastRow();
+      sheet.getRange(lastRow, responsableCol).setValue(datos.responsable || 'OPERARIO');
+    }
     
     console.log('✅ Planeación guardada con ID:', id);
     
-    // Crear registros de limpieza pendientes - VERSIÓN MEJORADA
+    // Crear registros de limpieza pendientes - PASANDO EL RESPONSABLE
     const registrosCreados = crearRegistrosPendientesJerarquicos(datos, id);
     
     if (registrosCreados > 0) {
@@ -450,15 +464,17 @@ function crearRegistrosPendientesJerarquicos(datos, planeacionId) {
               elementoNombre,                // ELEMENTO_NOMBRE
               tipo,                          // TIPO_LIMPIEZA
               'PENDIENTE',                   // ESTADO
-              '',                            // RESPONSABLE
+              '',                            // RESPONSABLE (se llena al hacer limpieza)
               '',                            // FECHA_REALIZACION
               '',                            // OBSERVACIONES
               fechaCreacion,                 // FECHA_CREACION
               '',                            // FECHA_FINALIZACION
               componenteNombre,              // COMPONENTE
               '',                            // VALIDADO_POR
-              ''                             // FECHA_VALIDACION
+              '',                            // FECHA_VALIDACION
+              elemento.responsable || datos.responsable || 'OPERARIO' // ← NUEVO: RESPONSABLE_ASIGNADO
             ];
+
             
             console.log(`    ➕ CREANDO REGISTRO: ${elementoNombre} - ${tipo}`);
             console.log('    Fila a agregar:', nuevaFila);
@@ -717,6 +733,12 @@ function obtenerRegistrosLimpiezaPorProceso(procesoUsuario, maquinaId, elementoI
     }
     
     const data = sheetRegistros.getDataRange().getValues();
+    const headers = data[0];
+    
+    // Buscar índice de columna RESPONSABLE_ASIGNADO
+    const responsableAsignadoCol = headers.indexOf('RESPONSABLE_ASIGNADO');
+    console.log('🔍 Columna RESPONSABLE_ASIGNADO en PorProceso:', responsableAsignadoCol);
+    
     const registros = [];
     
     const maquinaIdBusqueda = maquinaId ? maquinaId.toString().trim() : null;
@@ -744,6 +766,10 @@ function obtenerRegistrosLimpiezaPorProceso(procesoUsuario, maquinaId, elementoI
         const fechaRealizacion = data[i][9] ? formatearFechaCompleta(data[i][9]) : '';
         const fechaValidacion = data[i][14] ? formatearFechaCompleta(data[i][14]) : '';
         
+        // Obtener responsableAsignado
+        const responsableAsignado = responsableAsignadoCol !== -1 && data[i][responsableAsignadoCol] ? 
+                                  data[i][responsableAsignadoCol].toString().trim() : 'OPERARIO';
+        
         const registro = {
           id: data[i][0].toString(),
           planeacionId: data[i][1] ? data[i][1].toString() : '',
@@ -760,15 +786,15 @@ function obtenerRegistrosLimpiezaPorProceso(procesoUsuario, maquinaId, elementoI
           fechaFinalizacion: fechaFinalizacion,
           componente: data[i][13] || '',
           validadoPor: data[i][14] || '',
-          fechaValidacion: fechaValidacion
+          fechaValidacion: fechaValidacion,
+          // NUEVO: Incluir responsableAsignado
+          responsableAsignado: responsableAsignado
         };
         
         console.log('✅ REGISTRO COINCIDE:', {
           id: registro.id,
           elementoNombre: registro.elementoNombre,
-          tipoLimpieza: registro.tipoLimpieza,
-          estado: registro.estado,
-          componente: registro.componente
+          responsableAsignado: registro.responsableAsignado
         });
         
         registros.push(registro);
@@ -798,10 +824,6 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
   try {
     console.log('🔍 === INICIANDO BÚSQUEDA DE REGISTROS ===');
     console.log('Parámetros recibidos:', { maquinaId, elementoId });
-    console.log('Tipos:', { 
-      maquinaIdTipo: typeof maquinaId, 
-      elementoIdTipo: typeof elementoId 
-    });
     
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sheet = ss.getSheetByName(SHEETS.REGISTROS_LIMPIEZA);
@@ -820,7 +842,12 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
     }
     
     // Mostrar headers para referencia
-    console.log('📝 Headers:', data[0]);
+    const headers = data[0];
+    console.log('📝 Headers:', headers);
+    
+    // Buscar índice de columna RESPONSABLE_ASIGNADO
+    const responsableAsignadoCol = headers.indexOf('RESPONSABLE_ASIGNADO');
+    console.log('🔍 Columna RESPONSABLE_ASIGNADO:', responsableAsignadoCol);
     
     const registros = [];
     const maquinaIdBusqueda = maquinaId ? maquinaId.toString().trim() : null;
@@ -832,13 +859,11 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
     });
     
     let coincidencias = 0;
-    let noCoincidencias = 0;
     
     for (let i = 1; i < data.length; i++) {
       const fila = i + 1;
       
       if (!data[i][0] || data[i][0].toString().trim() === '') {
-        console.log(`Fila ${fila}: Sin ID, omitiendo`);
         continue;
       }
       
@@ -848,21 +873,16 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
       const matchMaquina = !maquinaIdBusqueda || regMaquinaId === maquinaIdBusqueda;
       const matchElemento = !elementoIdBusqueda || regElementoId === elementoIdBusqueda;
       
-      console.log(`Fila ${fila}:`, {
-        regMaquinaId,
-        regElementoId,
-        matchMaquina,
-        matchElemento,
-        tipoLimpieza: data[i][6],
-        estado: data[i][7]
-      });
-      
       if (matchMaquina && matchElemento) {
         // Formatear fechas
         const fechaCreacion = data[i][11] ? formatearFechaCompleta(data[i][11]) : '';
         const fechaFinalizacion = data[i][12] ? formatearFechaCompleta(data[i][12]) : '';
         const fechaRealizacion = data[i][9] ? formatearFechaCompleta(data[i][9]) : '';
         const fechaValidacion = data[i][14] ? formatearFechaCompleta(data[i][14]) : '';
+        
+        // Obtener responsableAsignado (columna 16 o la que corresponda)
+        const responsableAsignado = responsableAsignadoCol !== -1 && data[i][responsableAsignadoCol] ? 
+                                  data[i][responsableAsignadoCol].toString().trim() : 'OPERARIO';
         
         const registro = {
           id: data[i][0].toString(),
@@ -880,7 +900,9 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
           fechaFinalizacion: fechaFinalizacion,
           componente: data[i][13] || '',
           validadoPor: data[i][14] || '',
-          fechaValidacion: fechaValidacion
+          fechaValidacion: fechaValidacion,
+          // NUEVO: Incluir responsableAsignado en la respuesta
+          responsableAsignado: responsableAsignado
         };
         
         console.log(`✅ REGISTRO COINCIDE ${++coincidencias}:`, {
@@ -888,36 +910,20 @@ function obtenerRegistrosLimpieza(maquinaId, elementoId) {
           elementoNombre: registro.elementoNombre,
           tipoLimpieza: registro.tipoLimpieza,
           estado: registro.estado,
-          componente: registro.componente
+          responsableAsignado: registro.responsableAsignado
         });
         
         registros.push(registro);
-      } else {
-        noCoincidencias++;
       }
     }
     
     console.log('🎯 RESULTADO BÚSQUEDA:');
-    console.log('- Coincidencias encontradas:', coincidencias);
-    console.log('- No coincidencias:', noCoincidencias);
-    console.log('- Total registros retornados:', registros.length);
-    
-    if (registros.length === 0) {
-      console.log('⚠️ ADVERTENCIA: No se encontraron registros');
-      console.log('Revisar:');
-      console.log('1. ¿Existen registros en la hoja?');
-      console.log('2. ¿Los IDs coinciden exactamente?');
-      console.log('3. ¿Se crearon registros al guardar la planeación?');
-    }
+    console.log('- Total registros encontrados:', registros.length);
     
     return { 
       success: true, 
       registros: registros,
-      message: `${registros.length} registros encontrados`,
-      estadisticas: {
-        coincidencias: coincidencias,
-        totalFilas: data.length - 1
-      }
+      message: `${registros.length} registros encontrados`
     };
     
   } catch (error) {
@@ -2118,153 +2124,353 @@ function obtenerFrecuenciaPorElemento(maquinaId, elementoId) {
   }
 }
 
-function generarReporteMaquinaPDF(maquinaId, maquinaNombre, jefeOrigenNombre, jefeOrigenCedula, turnoOrigen, turnoDestino, proceso) {
+function generarReporteMaquinaPDF(maquinaId, maquinaNombre, jefeOrigenNombre, jefeOrigenCedula, turnoOrigen, turnoDestino, proceso, emailDestino) {
   try {
-    // 1. Obtener detalles de la máquina
-    const detallesMaquina = obtenerDetallesCompletosMaquina(maquinaId);
+    console.log('📊 Iniciando generación de reporte PDF...');
     
-    if (!detallesMaquina) {
-      return { success: false, message: 'No se encontró la máquina' };
+    // Validar parámetros
+    if (!emailDestino || emailDestino.trim() === '') {
+      throw new Error('Correo destino no especificado');
     }
     
-    // 2. Verificar que esté validada
-    if (detallesMaquina.estadoGeneral !== 'VALIDADO') {
-      return { success: false, message: 'La máquina no está validada' };
+    // 1. Obtener información de la máquina
+    const infoMaquina = obtenerInfoValidacionMaquina(maquinaId);
+    
+    if (!infoMaquina.success) {
+      throw new Error('Error al obtener información de la máquina: ' + infoMaquina.message);
     }
     
-    // 3. Obtener correo destino
-    const emailDestino = obtenerCorreoPorTurno(turnoDestino);
+    const datosMaquina = infoMaquina.datos;
     
-    // 4. Generar HTML del reporte
-    const htmlContent = generarHTMLReporteMaquina(detallesMaquina, jefeOrigenNombre, turnoOrigen, turnoDestino);
+    // 2. Verificar si puede generar reporte
+    if (!datosMaquina.puedeValidar && datosMaquina.yaValidados === 0) {
+      return { 
+        success: false, 
+        message: `No se puede generar reporte. La máquina no está completamente validada.` 
+      };
+    }
     
-    // 5. Crear PDF
+    // 3. Generar HTML del reporte SIMPLE
+    const htmlContent = generarHTMLReporteAvances(
+      maquinaId,
+      maquinaNombre,
+      datosMaquina,
+      jefeOrigenNombre,
+      turnoOrigen,
+      turnoDestino,
+      proceso,
+      emailDestino
+    );
+    
+    // 4. Crear PDF
     const pdfBlob = crearPDF(htmlContent);
     
-    // 6. Enviar email
-    enviarEmailReporteMaquina(emailDestino, pdfBlob, detallesMaquina, jefeOrigenNombre, turnoOrigen, turnoDestino);
+    // 5. Enviar email
+    enviarEmailReporteAvances(
+      emailDestino, 
+      pdfBlob, 
+      maquinaId,
+      maquinaNombre,
+      datosMaquina,
+      jefeOrigenNombre,
+      turnoOrigen,
+      turnoDestino
+    );
     
-    // 7. Registrar
-    registrarReporteMaquina(maquinaId, maquinaNombre, jefeOrigenNombre, jefeOrigenCedula, turnoOrigen, turnoDestino, emailDestino);
+    // 6. Registrar el envío
+    registrarEnvioReporte(
+      maquinaId,
+      maquinaNombre,
+      jefeOrigenNombre,
+      jefeOrigenCedula,
+      turnoOrigen,
+      turnoDestino,
+      emailDestino,
+      datosMaquina
+    );
+    
+    console.log('✅ Reporte PDF simple generado y enviado');
     
     return { 
       success: true, 
-      message: 'Reporte enviado',
+      message: `✅ Reporte de avances enviado a ${emailDestino}`,
       emailDestino: emailDestino
     };
     
   } catch (error) {
-    return { success: false, message: 'Error: ' + error.message };
-  }
-}
-
-function obtenerDetallesCompletosMaquina(maquinaId) {
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sheetRegistros = ss.getSheetByName(SHEETS.REGISTROS_LIMPIEZA);
-    
-    if (!sheetRegistros) return null;
-    
-    const data = sheetRegistros.getDataRange().getValues();
-    const headers = data[0];
-    
-    let maquinaNombre = '';
-    let estadoGeneral = 'PENDIENTE';
-    let elementos = [];
-    
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][2] && data[i][2].toString().trim() === maquinaId.toString().trim()) {
-        if (!maquinaNombre && data[i][3]) {
-          maquinaNombre = data[i][3];
-        }
-        
-        if (data[i][14] && data[i][14] !== '') {
-          estadoGeneral = 'VALIDADO';
-        }
-        
-        const elemento = {
-          nombre: data[i][5] || '',
-          tipoLimpieza: data[i][6] || '',
-          estado: data[i][7] || '',
-          responsable: data[i][8] || '',
-          validadoPor: data[i][14] || ''
-        };
-        
-        elementos.push(elemento);
-      }
-    }
-    
-    return {
-      maquinaId: maquinaId,
-      maquinaNombre: maquinaNombre,
-      estadoGeneral: estadoGeneral,
-      elementos: elementos,
-      totalElementos: elementos.length,
-      elementosValidados: elementos.filter(e => e.validadoPor !== '').length
+    console.error('💥 Error generando reporte:', error);
+    return { 
+      success: false, 
+      message: 'Error al generar reporte: ' + error.message 
     };
-    
-  } catch (error) {
-    console.error('Error:', error);
-    return null;
   }
 }
 
-function generarHTMLReporteMaquina(detalles, jefeOrigen, turnoOrigen, turnoDestino) {
-  const fecha = new Date().toLocaleDateString('es-ES');
-  const porcentaje = detalles.totalElementos > 0 ? 
-    Math.round((detalles.elementosValidados / detalles.totalElementos) * 100) : 0;
+function generarHTMLReporteAvances(maquinaId, maquinaNombre, datosMaquina, jefeOrigen, turnoOrigen, turnoDestino, proceso, emailDestino) {
+  const fecha = new Date();
+  const fechaFormateada = fecha.toLocaleDateString('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
   
   return `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
+      <title>Reporte Avances - ${maquinaNombre}</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .header { text-align: center; margin-bottom: 20px; }
-        .table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        .table th { background: #1e40af; color: white; padding: 10px; }
-        .table td { padding: 8px; border-bottom: 1px solid #ddd; }
-        .footer { margin-top: 30px; text-align: center; color: #666; }
+        body {
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 20px;
+          font-size: 12px;
+          color: #333;
+        }
+        
+        .container {
+          max-width: 600px;
+          margin: 0 auto;
+          background: white;
+          border: 1px solid #ddd;
+          padding: 20px;
+        }
+        
+        .header {
+          text-align: center;
+          margin-bottom: 20px;
+          padding-bottom: 15px;
+          border-bottom: 2px solid #1e40af;
+        }
+        
+        .header h1 {
+          color: #1e40af;
+          margin: 0 0 5px 0;
+          font-size: 18px;
+        }
+        
+        .header h2 {
+          color: #374151;
+          margin: 0;
+          font-size: 14px;
+          font-weight: normal;
+        }
+        
+        .info-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          margin: 15px 0;
+          font-size: 11px;
+        }
+        
+        .info-item {
+          padding: 8px;
+          background: #f8f9fa;
+          border-radius: 4px;
+        }
+        
+        .info-label {
+          font-weight: bold;
+          color: #555;
+          margin-bottom: 3px;
+        }
+        
+        .stats-box {
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 15px;
+          margin: 20px 0;
+        }
+        
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 15px;
+        }
+        
+        .stat-item {
+          text-align: center;
+          padding: 10px;
+          background: white;
+          border-radius: 6px;
+          border: 1px solid #e5e7eb;
+        }
+        
+        .stat-number {
+          font-size: 24px;
+          font-weight: bold;
+          margin-bottom: 5px;
+        }
+        
+        .stat-total { color: #1e40af; }
+        .stat-completed { color: #10b981; }
+        .stat-pending { color: #f59e0b; }
+        .stat-validated { color: #8b5cf6; }
+        
+        .stat-label {
+          font-size: 11px;
+          color: #64748b;
+          text-transform: uppercase;
+        }
+        
+        .progress-section {
+          margin: 20px 0;
+        }
+        
+        .progress-bar {
+          height: 20px;
+          background: #e5e7eb;
+          border-radius: 10px;
+          margin: 10px 0;
+          overflow: hidden;
+        }
+        
+        .progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+          border-radius: 10px;
+          text-align: center;
+          color: white;
+          font-size: 12px;
+          line-height: 20px;
+          font-weight: bold;
+        }
+        
+        .summary {
+          background: #f0f9ff;
+          border-left: 4px solid #0ea5e9;
+          padding: 15px;
+          margin: 20px 0;
+          border-radius: 0 8px 8px 0;
+        }
+        
+        .summary h3 {
+          margin: 0 0 10px 0;
+          color: #0369a1;
+          font-size: 13px;
+        }
+        
+        .summary ul {
+          margin: 0;
+          padding-left: 20px;
+          color: #0c4a6e;
+        }
+        
+        .summary li {
+          margin-bottom: 5px;
+          font-size: 11px;
+        }
+        
+        .footer {
+          text-align: center;
+          margin-top: 25px;
+          padding-top: 15px;
+          border-top: 1px solid #e5e7eb;
+          color: #6b7280;
+          font-size: 10px;
+        }
+        
+        .footer strong {
+          color: #1e40af;
+        }
       </style>
     </head>
     <body>
-      <div class="header">
-        <h2>REPORTE DE MÁQUINA VALIDADA</h2>
-        <p><strong>${detalles.maquinaNombre}</strong> | ID: ${detalles.maquinaId}</p>
-        <p>Generado por: ${jefeOrigen} | Turno: ${turnoOrigen} → ${turnoDestino}</p>
-        <p>Fecha: ${fecha}</p>
-      </div>
-      
-      <h3>Resumen</h3>
-      <p>Elementos validados: ${detalles.elementosValidados}/${detalles.totalElementos} (${porcentaje}%)</p>
-      
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Elemento</th>
-            <th>Tipo</th>
-            <th>Estado</th>
-            <th>Responsable</th>
-            <th>Validador</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${detalles.elementos.map(elemento => `
-            <tr>
-              <td>${elemento.nombre}</td>
-              <td>${elemento.tipoLimpieza}</td>
-              <td>${elemento.estado}</td>
-              <td>${elemento.responsable}</td>
-              <td>${elemento.validadoPor || '-'}</td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-      
-      <div class="footer">
-        <hr>
-        <p>Sistema PHLYD - Reporte automático</p>
+      <div class="container">
+        <!-- Header -->
+        <div class="header">
+          <h1>📋 REPORTE DE AVANCES</h1>
+          <h2>${maquinaNombre} (ID: ${maquinaId})</h2>
+          <div style="font-size: 11px; color: #6b7280; margin-top: 5px;">
+            Generado: ${fechaFormateada}
+          </div>
+        </div>
+        
+        <!-- Información básica -->
+        <div class="info-grid">
+          <div class="info-item">
+            <div class="info-label">Proceso</div>
+            <div>${proceso || 'GENERAL'}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Jefe Responsable</div>
+            <div>${jefeOrigen}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Turno Origen</div>
+            <div>${turnoOrigen}</div>
+          </div>
+          <div class="info-item">
+            <div class="info-label">Turno Destino</div>
+            <div>${turnoDestino} (${emailDestino})</div>
+          </div>
+        </div>
+        
+        <!-- Estadísticas principales -->
+        <div class="stats-box">
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-number stat-total">${datosMaquina.total}</div>
+              <div class="stat-label">Total Elementos</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number stat-completed">${datosMaquina.completados}</div>
+              <div class="stat-label">Completados</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number stat-pending">${datosMaquina.pendientes}</div>
+              <div class="stat-label">Pendientes</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number stat-validated">${datosMaquina.yaValidados}</div>
+              <div class="stat-label">Validados</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Barra de progreso -->
+        <div class="progress-section">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+            <span style="font-weight: bold; color: #374151;">Progreso General</span>
+            <span style="font-weight: bold; color: #1e40af;">${datosMaquina.porcentaje}%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: ${datosMaquina.porcentaje}%">
+              ${datosMaquina.porcentaje}%
+            </div>
+          </div>
+          <div style="text-align: center; font-size: 11px; color: #6b7280; margin-top: 5px;">
+            ${datosMaquina.completados} de ${datosMaquina.total} elementos
+          </div>
+        </div>
+        
+        <!-- Resumen ejecutivo -->
+        <div class="summary">
+          <h3>📊 RESUMEN EJECUTIVO</h3>
+          <ul>
+            <li><strong>Estado actual:</strong> ${datosMaquina.porcentaje >= 100 ? '✅ COMPLETADO' : 
+                                                   datosMaquina.porcentaje >= 70 ? '⚡ EN PROCESO AVANZADO' : 
+                                                   datosMaquina.porcentaje >= 30 ? '🔄 EN PROCESO' : '⏳ PENDIENTE'}</li>
+            <li><strong>Avance:</strong> ${datosMaquina.completados}/${datosMaquina.total} elementos completados</li>
+            <li><strong>Validación:</strong> ${datosMaquina.yaValidados} elementos validados por jefe</li>
+            <li><strong>Transferencia:</strong> ${turnoOrigen} → ${turnoDestino}</li>
+            <li><strong>Responsable:</strong> ${jefeOrigen}</li>
+          </ul>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+          <div><strong>PHLYD</strong> - Sistema de Gestión de Limpieza</div>
+          <div>Reporte generado automáticamente</div>
+          <div style="margin-top: 5px; font-size: 9px;">
+            Este documento es una transferencia oficial entre turnos
+          </div>
+        </div>
       </div>
     </body>
     </html>
@@ -2272,36 +2478,102 @@ function generarHTMLReporteMaquina(detalles, jefeOrigen, turnoOrigen, turnoDesti
 }
 
 function crearPDF(htmlContent) {
-  const blob = Utilities.newBlob(htmlContent, 'text/html', 'reporte.html');
-  const pdf = blob.getAs('application/pdf');
-  
-  const fecha = new Date();
-  const nombreArchivo = `Reporte_${fecha.getFullYear()}${(fecha.getMonth()+1).toString().padStart(2,'0')}${fecha.getDate().toString().padStart(2,'0')}.pdf`;
-  pdf.setName(nombreArchivo);
-  
-  return pdf;
+  try {
+    console.log('📄 Creando PDF...');
+    
+    // Crear blob con el HTML
+    const blob = Utilities.newBlob(htmlContent, 'text/html', 'reporte.html');
+    
+    // Convertir a PDF
+    const pdf = blob.getAs('application/pdf');
+    
+    // Nombre del archivo
+    const fecha = new Date();
+    const nombreArchivo = `Reporte_Avances_${fecha.getFullYear()}${(fecha.getMonth()+1).toString().padStart(2,'0')}${fecha.getDate().toString().padStart(2,'0')}_${fecha.getHours()}${fecha.getMinutes()}.pdf`;
+    
+    pdf.setName(nombreArchivo);
+    console.log('✅ PDF creado:', nombreArchivo);
+    
+    return pdf;
+  } catch (error) {
+    console.error('💥 Error creando PDF:', error);
+    throw error;
+  }
 }
 
-function enviarEmailReporteMaquina(emailDestino, pdfBlob, detalles, jefeOrigen, turnoOrigen, turnoDestino) {
-  const subject = `Reporte Máquina Validada: ${detalles.maquinaNombre}`;
-  
-  const body = `
-    <h3>Reporte de Máquina Validada</h3>
-    <p><strong>Máquina:</strong> ${detalles.maquinaNombre}</p>
-    <p><strong>Jefe Origen:</strong> ${jefeOrigen} (Turno ${turnoOrigen})</p>
-    <p><strong>Turno Destino:</strong> ${turnoDestino}</p>
-    <p><strong>Elementos validados:</strong> ${detalles.elementosValidados}/${detalles.totalElementos}</p>
-    <hr>
-    <p>Se adjunta reporte PDF detallado.</p>
-    <p><em>Reporte automático - Sistema PHLYD</em></p>
-  `;
-  
-  MailApp.sendEmail({
-    to: emailDestino,
-    subject: subject,
-    htmlBody: body,
-    attachments: [pdfBlob]
-  });
+function enviarEmailReporteAvances(emailDestino, pdfBlob, maquinaId, maquinaNombre, datosMaquina, jefeOrigen, turnoOrigen, turnoDestino) {
+  try {
+    console.log('📧 Enviando email a:', emailDestino);
+    
+    const fecha = new Date().toLocaleDateString('es-ES');
+    const subject = `📋 Reporte de Avances - ${maquinaNombre} (${turnoOrigen} → ${turnoDestino})`;
+    
+    const body = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #1e40af; border-bottom: 2px solid #1e40af; padding-bottom: 10px;">
+          📋 Reporte de Avances - Sistema PHLYD
+        </h2>
+        
+        <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="color: #374151; margin-top: 0;">
+            ${maquinaNombre}
+          </h3>
+          
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 15px 0;">
+            <div>
+              <strong>ID Máquina:</strong><br>
+              ${maquinaId}
+            </div>
+            <div>
+              <strong>Progreso:</strong><br>
+              ${datosMaquina.porcentaje}% (${datosMaquina.completados}/${datosMaquina.total})
+            </div>
+            <div>
+              <strong>Jefe Origen:</strong><br>
+              ${jefeOrigen}
+            </div>
+            <div>
+              <strong>Turno:</strong><br>
+              ${turnoOrigen} → ${turnoDestino}
+            </div>
+          </div>
+        </div>
+        
+        <div style="background: #dbeafe; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h4 style="color: #1e40af; margin-top: 0;">📊 Resumen de Estado</h4>
+          <ul style="margin: 10px 0; padding-left: 20px;">
+            <li>Total elementos: ${datosMaquina.total}</li>
+            <li>Completados: ${datosMaquina.completados}</li>
+            <li>Pendientes: ${datosMaquina.pendientes}</li>
+            <li>Ya validados: ${datosMaquina.yaValidados}</li>
+            <li>Progreso general: ${datosMaquina.porcentaje}%</li>
+          </ul>
+        </div>
+        
+        <p>Se adjunta reporte PDF detallado con la información completa de la máquina.</p>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px;">
+          <p><em>Este es un mensaje automático generado por el Sistema PHLYD.</em></p>
+          <p><em>Fecha de envío: ${fecha}</em></p>
+        </div>
+      </div>
+    `;
+    
+    MailApp.sendEmail({
+      to: emailDestino,
+      subject: subject,
+      htmlBody: body,
+      attachments: [pdfBlob],
+      name: 'Sistema PHLYD - Reportes'
+    });
+    
+    console.log('✅ Email enviado exitosamente');
+    return true;
+    
+  } catch (error) {
+    console.error('💥 Error enviando email:', error);
+    throw error;
+  }
 }
 
 function registrarReporteMaquina(maquinaId, maquinaNombre, jefeOrigen, jefeOrigenCedula, turnoOrigen, turnoDestino, emailDestino) {
@@ -2327,5 +2599,214 @@ function registrarReporteMaquina(maquinaId, maquinaNombre, jefeOrigen, jefeOrige
     
   } catch (error) {
     console.error('Error registrando reporte:', error);
+  }
+}
+
+function calcularEstadisticasPorTipo(registros) {
+  const tipos = {};
+  
+  registros.forEach(registro => {
+    const tipo = registro.tipoLimpieza || 'NO ESPECIFICADO';
+    
+    if (!tipos[tipo]) {
+      tipos[tipo] = {
+        total: 0,
+        completados: 0,
+        porcentaje: 0
+      };
+    }
+    
+    tipos[tipo].total++;
+    
+    if (registro.estado === 'COMPLETADO' || registro.estado === 'VALIDADO') {
+      tipos[tipo].completados++;
+    }
+  });
+  
+  // Calcular porcentajes
+  Object.keys(tipos).forEach(tipo => {
+    const stats = tipos[tipo];
+    stats.porcentaje = stats.total > 0 ? 
+      Math.round((stats.completados / stats.total) * 100) : 0;
+  });
+  
+  return tipos;
+}
+
+function registrarEnvioReporte(maquinaId, maquinaNombre, jefeOrigen, jefeCedula, turnoOrigen, turnoDestino, emailDestino, datosMaquina) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
+    // Crear o obtener hoja de reportes
+    let sheet = ss.getSheetByName('ENVIOS_REPORTES');
+    if (!sheet) {
+      sheet = ss.insertSheet('ENVIOS_REPORTES');
+      sheet.appendRow([
+        'FECHA_ENVIO',
+        'MAQUINA_ID',
+        'MAQUINA_NOMBRE',
+        'JEFE_NOMBRE',
+        'JEFE_CEDULA',
+        'TURNO_ORIGEN',
+        'TURNO_DESTINO',
+        'EMAIL_DESTINO',
+        'TOTAL_ELEMENTOS',
+        'COMPLETADOS',
+        'PENDIENTES',
+        'YA_VALIDADOS',
+        'PORCENTAJE',
+        'ESTADO_ENVIO'
+      ]);
+      
+      // Formatear headers
+      const range = sheet.getRange(1, 1, 1, 14);
+      range.setBackground('#1e40af')
+           .setFontColor('white')
+           .setFontWeight('bold');
+    }
+    
+    // Agregar registro
+    sheet.appendRow([
+      new Date().toISOString(),
+      maquinaId,
+      maquinaNombre,
+      jefeOrigen,
+      jefeCedula,
+      turnoOrigen,
+      turnoDestino,
+      emailDestino,
+      datosMaquina.total,
+      datosMaquina.completados,
+      datosMaquina.pendientes,
+      datosMaquina.yaValidados,
+      datosMaquina.porcentaje,
+      'ENVIADO'
+    ]);
+    
+    console.log('📝 Registro de envío guardado');
+    return true;
+    
+  } catch (error) {
+    console.error('⚠️ Error guardando registro de envío:', error);
+    // No lanzamos error para no afectar el flujo principal
+    return false;
+  }
+}
+
+function probarReportePDF() {
+  // Datos de prueba
+  const resultado = generarReporteMaquinaPDF(
+    '17', // maquinaId
+    'Maquina 17', // maquinaNombre
+    'Juan Pérez', // jefeOrigenNombre
+    '123456789', // jefeOrigenCedula
+    'MAÑANA', // turnoOrigen
+    'TARDE', // turnoDestino
+    'PRODUCCION' // proceso
+  );
+  
+  console.log('Resultado de prueba:', resultado);
+  return resultado;
+}
+
+function cambiarFrecuenciaPlaneacion(maquinaId, nuevaFrecuencia) {
+  try {
+    console.log('🔄 Cambiando frecuencia para máquina:', maquinaId, '->', nuevaFrecuencia);
+    
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheetPlaneacion = ss.getSheetByName(SHEETS.PLANEACION);
+    
+    if (!sheetPlaneacion) {
+      return { success: false, message: 'Hoja PLANEACION no encontrada' };
+    }
+    
+    const data = sheetPlaneacion.getDataRange().getValues();
+    const headers = data[0];
+    
+    // Buscar índices de columnas
+    const maquinaIdCol = headers.indexOf('MAQUINA_ID');
+    const frecuenciaCol = headers.indexOf('FRECUENCIA');
+    
+    if (maquinaIdCol === -1 || frecuenciaCol === -1) {
+      return { success: false, message: 'Estructura de hoja incorrecta' };
+    }
+    
+    let actualizadas = 0;
+    
+    // Buscar todas las planeaciones de esta máquina
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      if (row[maquinaIdCol] && row[maquinaIdCol].toString().trim() === maquinaId.toString().trim()) {
+        // Actualizar frecuencia
+        sheetPlaneacion.getRange(i + 1, frecuenciaCol + 1).setValue(nuevaFrecuencia);
+        actualizadas++;
+      }
+    }
+    
+    if (actualizadas > 0) {
+      return {
+        success: true,
+        message: `Frecuencia actualizada a "${nuevaFrecuencia}"`,
+        actualizadas: actualizadas,
+        maquinaId: maquinaId
+      };
+    } else {
+      return { 
+        success: false, 
+        message: 'No se encontraron planeaciones para esta máquina' 
+      };
+    }
+    
+  } catch (error) {
+    console.error('💥 Error cambiando frecuencia:', error);
+    return { 
+      success: false, 
+      message: 'Error al cambiar frecuencia: ' + error.message 
+    };
+  }
+}
+
+function obtenerFrecuenciaActual(maquinaId) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sheetPlaneacion = ss.getSheetByName(SHEETS.PLANEACION);
+    
+    if (!sheetPlaneacion) {
+      return { success: false, message: 'Hoja PLANEACION no encontrada' };
+    }
+    
+    const data = sheetPlaneacion.getDataRange().getValues();
+    const headers = data[0];
+    
+    const maquinaIdCol = headers.indexOf('MAQUINA_ID');
+    const frecuenciaCol = headers.indexOf('FRECUENCIA');
+    
+    // Buscar la primera planeación de esta máquina
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      
+      if (row[maquinaIdCol] && row[maquinaIdCol].toString().trim() === maquinaId.toString().trim()) {
+        return {
+          success: true,
+          frecuencia: row[frecuenciaCol] || 'Mensual',
+          maquinaId: maquinaId
+        };
+      }
+    }
+    
+    return { 
+      success: false, 
+      message: 'No se encontró la máquina',
+      frecuencia: 'Mensual' 
+    };
+    
+  } catch (error) {
+    console.error('Error obteniendo frecuencia:', error);
+    return { 
+      success: false, 
+      message: 'Error: ' + error.message,
+      frecuencia: 'Mensual' 
+    };
   }
 }
