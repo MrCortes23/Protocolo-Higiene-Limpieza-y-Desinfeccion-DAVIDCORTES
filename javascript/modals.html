@@ -1,0 +1,169 @@
+<script>
+
+    function confirmarModal() {
+        // Si hay finalización completa pendiente
+        if (window.pendingFinalizarCompleto) {
+            confirmarFinalizarCompleto();
+            cerrarModal();
+            return;
+        }
+
+        // Si hay reporte de máquina pendiente
+        if (window.pendingReporteMaquina) {
+            ejecutarGenerarReporteMaquina();
+            cerrarModal();
+            return;
+        }
+
+        // Si hay validación pendiente
+        if (pendingValidation) {
+            confirmarValidacion();
+            cerrarModal();
+            return;
+        }
+
+        // Si hay checkbox de limpieza pendiente
+        if (pendingCheckboxData) {
+            confirmarLimpieza();
+            cerrarModal();
+            return;
+        }
+
+        // Si hay eliminación de máquina pendiente
+        if (window.pendingMaquinaDelete) {
+            ejecutarEliminacionMaquina();
+            cerrarModal();
+            return;
+        }
+
+        // Si hay validación de máquina pendiente
+        if (window.pendingMaquinaValidation) {
+            ejecutarValidacionMaquina();
+            cerrarModal();
+            return;
+        }
+
+        if (window.pendingFinalizarCompleto) {
+            confirmarFinalizarCompleto();
+            cerrarModal();
+            return;
+        }
+
+        if (window.pendingLimpiezaMasiva) {
+            confirmarLimpiezaMasiva();
+            cerrarModal();
+            return;
+        }
+    }
+
+    function cerrarModal() {
+        document.getElementById('confirm-modal').classList.add('hidden');
+
+        // Limpiar todos los estados pendientes
+        if (window.pendingLimpiezaMasiva) {
+            // Si se cancela la limpieza masiva, volver a mostrar el modal de limpieza masiva
+            setTimeout(() => {
+                const modalLimpiezaMasiva = document.getElementById('limpieza-masiva-modal');
+                if (modalLimpiezaMasiva) {
+                    modalLimpiezaMasiva.classList.remove('hidden');
+                }
+            }, 100);
+            window.pendingLimpiezaMasiva = null;
+        }
+
+        // Añadir limpieza para cambios de frecuencia pendientes
+        if (window.pendingFrecuenciaChange) {
+            // Si se cancela el cambio de frecuencia, restaurar valor anterior
+            obtenerFrecuenciaActualYRestaurar(window.pendingFrecuenciaChange.maquinaId);
+            window.pendingFrecuenciaChange = null;
+        }
+
+        // Restablecer el modal
+        const modalTitle = document.querySelector('.modal-title');
+        if (modalTitle) {
+            modalTitle.textContent = 'Confirmar Validación';
+        }
+
+        const confirmBtn = document.querySelector('.btn-confirm');
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.style.opacity = '1';
+            confirmBtn.style.cursor = 'pointer';
+            confirmBtn.textContent = 'Confirmar';
+            confirmBtn.style.backgroundColor = '';
+            confirmBtn.style.borderColor = '';
+            // Restaurar el event listener original
+            confirmBtn.onclick = confirmarModal;
+        }
+
+        const cancelBtn = document.querySelector('.btn-cancel');
+        if (cancelBtn) {
+            cancelBtn.textContent = 'Cancelar';
+            // Restaurar el event listener original
+            cancelBtn.onclick = cerrarModal;
+        }
+
+        // Limpiar otros estados pendientes
+        if (pendingCheckboxData) {
+            const checkbox = document.getElementById('check-' + pendingCheckboxData.tipo);
+            if (checkbox) checkbox.checked = false;
+            pendingCheckboxData = null;
+        }
+
+        if (window.pendingMaquinaDelete) {
+            window.pendingMaquinaDelete = null;
+        }
+
+        if (window.pendingMaquinaValidation) {
+            window.pendingMaquinaValidation = null;
+        }
+
+        if (window.pendingReporteMaquina) {
+            window.pendingReporteMaquina = null;
+        }
+
+        if (window.pendingFinalizarCompleto) {
+            window.pendingFinalizarCompleto = null;
+        }
+
+        pendingValidation = false;
+
+        // Limpiar campos de confirmación
+        const confirmInput = document.getElementById('confirm-delete-input');
+        if (confirmInput) {
+            confirmInput.value = '';
+        }
+
+        const errorMsg = document.getElementById('confirm-delete-error');
+        if (errorMsg) {
+            errorMsg.style.display = 'none';
+        }
+    }
+
+    function cerrarModalAlClicarFuera(event) {
+        const modal = document.getElementById('limpieza-masiva-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            // Si el clic fue en el fondo (no en el contenido del modal)
+            if (event.target === modal) {
+                cerrarModalLimpiezaMasiva();
+            }
+        }
+    }
+
+    // Añade este evento al cargar la página
+    document.addEventListener('DOMContentLoaded', function () {
+        const cedulaInput = document.getElementById('cedula-input');
+        if (cedulaInput) {
+            cedulaInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    handleLogin();
+                }
+            });
+        }
+
+        // Añadir evento para cerrar modal al hacer clic fuera - SOLO UNA VEZ
+        document.addEventListener('click', cerrarModalAlClicarFuera);
+    });
+
+
+</script>

@@ -1,0 +1,82 @@
+<script>
+
+    // ==================== EN PROCESO ====================
+    function loadProceso() {
+        showLoading();
+
+        // Para GEN, obtener todos los registros
+        if (currentUser.proceso === 'GENERAL') {
+            google.script.run
+                .withSuccessHandler(onProcesoLoaded)
+                .withFailureHandler(function (error) {
+                    hideLoading();
+                    console.error('Error cargando proceso:', error);
+                    renderProceso([]);
+                })
+                .obtenerTodosRegistrosLimpieza(); // ¡NUEVA FUNCIÓN!
+        } else {
+            google.script.run
+                .withSuccessHandler(onProcesoLoaded)
+                .withFailureHandler(function (error) {
+                    hideLoading();
+                    console.error('Error cargando proceso:', error);
+                    renderProceso([]);
+                })
+                .obtenerRegistrosLimpiezaPorProceso(currentUser.proceso, null, null);
+        }
+    }
+
+    function onProcesoLoaded(result) {
+        hideLoading();
+
+        if (result && result.success) {
+            renderProceso(result.registros || []);
+        } else {
+            renderProceso([]);
+        }
+    }
+
+    function renderProceso(registros) {
+        const container = document.getElementById('proceso-content');
+        container.innerHTML = '';
+
+        if (!registros || registros.length === 0) {
+            container.innerHTML = '<p class="config-placeholder">No hay limpiezas en proceso</p>';
+            return;
+        }
+
+        const grouped = {};
+        registros.forEach(reg => {
+            if (!grouped[reg.maquinaId]) {
+                grouped[reg.maquinaId] = {
+                    nombre: reg.maquinaNombre,
+                    registros: []
+                };
+            }
+            grouped[reg.maquinaId].registros.push(reg);
+        });
+
+        Object.keys(grouped).forEach(maquinaId => {
+            const maquina = grouped[maquinaId];
+            const card = document.createElement('div');
+            card.className = 'proceso-card';
+
+            const elementosHtml = maquina.registros.slice(0, 5).map(reg => `
+      <div class="proceso-elemento">
+        <span>${reg.elementoNombre} - ${reg.tipoLimpieza}</span>
+        <span class="estado-badge ${reg.estado === 'COMPLETADO' ? 'estado-completado' : 'estado-pendiente'}">
+          ${reg.estado}
+        </span>
+      </div>
+    `).join('');
+
+            card.innerHTML = `
+      <div class="proceso-card-title">${maquina.nombre}</div>
+      <div class="proceso-card-elementos">${elementosHtml}</div>
+    `;
+
+            container.appendChild(card);
+        });
+    }
+
+</script>

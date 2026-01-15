@@ -1,0 +1,764 @@
+<script>
+
+    // ==================== ELEMENTO DETAIL ====================
+    function selectElemento(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+        // Si el elemento no tiene planeación, no permitir ir a limpieza individual
+        limpiarSeleccionMasiva();
+
+        if (!tienePlaneacionActiva(elementoId)) {
+            showAlert("info", "Sin planeación", "Este elemento no tiene planeación activa");
+            return;
+        }
+
+        currentMaquinaId = maquinaId;
+        currentElementoId = elementoId;
+
+        // Si no se pasó el nombre de la máquina, buscarlo en los datos
+        if (!maquinaNombre && maquinasData) {
+            const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+            if (maquina) {
+                maquinaNombre = maquina.nombre;
+                currentMaquinaNombre = maquina.nombre;
+            }
+        } else {
+            currentMaquinaNombre = maquinaNombre;
+        }
+
+        // Si no se pasó el nombre del elemento, buscarlo en los datos
+        if (!elementoNombre && maquinasData) {
+            for (const maquina of maquinasData) {
+                if (maquina.id.toString() === maquinaId.toString() && maquina.componentes) {
+                    for (const componente of maquina.componentes) {
+                        const elemento = componente.elementos.find(e => e.id.toString() === elementoId.toString());
+                        if (elemento) {
+                            elementoNombre = elemento.nombre;
+                            currentElementoNombre = elemento.nombre;
+                            componenteNombre = componente.nombre;
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            currentElementoNombre = elementoNombre;
+        }
+
+        console.log('🎯 Elemento seleccionado para limpieza individual:', {
+            maquinaId: maquinaId,
+            elementoId: elementoId,
+            maquinaNombre: currentMaquinaNombre,
+            elementoNombre: currentElementoNombre
+        });
+
+        // Actualizar el título
+        const elementoTitle = document.getElementById('elemento-title');
+        if (elementoTitle) {
+            elementoTitle.textContent = `${currentMaquinaNombre || maquinaId} - ${componenteNombre || ''} - ${currentElementoNombre || elementoId}`;
+        }
+
+        // Cambiar a la vista de elemento
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+        document.getElementById('content-elemento').classList.remove('hidden');
+
+        // Resetear selección activa en sidebar
+        document.querySelectorAll('.elemento-item.active').forEach(item => item.classList.remove('active'));
+
+        // Marcar el elemento actual como activo
+        const elementoDiv = document.querySelector(`.elemento-item[onclick*="${elementoId}"]`);
+        if (elementoDiv) {
+            elementoDiv.classList.add('active');
+        }
+
+        // Ejecutar debug
+        debugElementoSeleccionado();
+
+        // Cargar los tipos de limpieza
+        loadElementoTiposLimpieza();
+    }
+
+    function loadElementoTiposLimpieza() {
+        console.log('🔄 Cargando tipos de limpieza para:', {
+            maquinaId: currentMaquinaId,
+            elementoId: currentElementoId
+        });
+
+        showLoading();
+
+        google.script.run
+            .withSuccessHandler(onTiposLimpiezaLoaded)
+            .withFailureHandler(function (error) {
+                hideLoading();
+                console.error('❌ Error cargando tipos de limpieza:', error);
+                showNoRegistrosMessage();
+            })
+            .obtenerRegistrosLimpieza(currentMaquinaId, currentElementoId);
+    }
+
+    function onTiposLimpiezaLoaded(result) {
+        hideLoading();
+        console.log('📥 Respuesta tipos limpieza:', result);
+
+        if (!result) {
+            console.error('❌ Error: Respuesta nula de tipos limpieza');
+            showNoRegistrosMessage();
+            return;
+        }
+
+        if (result.success) {
+            currentElementoTiposLimpieza = result.registros || [];
+            console.log('✅ Tipos de limpieza cargados:', currentElementoTiposLimpieza.length);
+
+            if (currentElementoTiposLimpieza.length === 0) {
+                showNoRegistrosMessage();
+            } else {
+                renderLimpiezaSections();
+                // SOLO llamar verificarEstadoValidacion si estamos en la vista correcta
+                if (document.getElementById('content-elemento') &&
+                    !document.getElementById('content-elemento').classList.contains('hidden')) {
+                    verificarEstadoValidacion();
+                }
+            }
+        } else {
+            console.error('❌ Error en tipos limpieza:', result.message);
+            showNoRegistrosMessage();
+        }
+    }
+
+    function showNoRegistrosMessage() {
+        const container = document.getElementById('limpieza-sections');
+        container.innerHTML = `
+    <div class="empty-state">
+      <p class="config-placeholder">No hay tipos de limpieza configurados para este elemento</p>
+      <p class="empty-state-hint">Este elemento no tiene registros de limpieza pendientes. Verifique:</p>
+      <ul style="text-align: left;margin: 1rem 0;font-size: 14.4px;color: var(--text-muted);">
+        <li>Que el elemento esté incluido en una planeación activa</li>
+        <li>Que la planeación tenga tipos de limpieza configurados</li>
+        <li>Que los registros se hayan creado correctamente</li>
+      </ul>
+      <button onclick="loadElementoTiposLimpieza()" class="btn-principal">Reintentar</button>
+    </div>
+  `;
+        document.getElementById('btn-finalizar').classList.add('hidden');
+    }
+
+    function renderLimpiezaSections() {
+        const container = document.getElementById('limpieza-sections');
+
+        if (!container) {
+            console.error('❌ Contenedor limpieza-sections no encontrado');
+            return;
+        }
+
+        console.log('🎨 Renderizando secciones de limpieza:', currentElementoTiposLimpieza);
+        console.log('👤 Usuario actual:', currentUser);
+
+        if (!currentElementoTiposLimpieza || currentElementoTiposLimpieza.length === 0) {
+            showNoRegistrosMessage();
+            return;
+        }
+
+        // Verificar si está validada
+        const primeraLimpieza = currentElementoTiposLimpieza[0];
+        const estaValidada = primeraLimpieza.validadoPor && primeraLimpieza.validadoPor !== '';
+
+        let html = '';
+
+        // Mostrar información de validación si existe
+        if (estaValidada) {
+            html += `
+      <div class="validacion-info" style="
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        border-radius: var(--border-radius);
+        padding: 16px;
+        margin-bottom: 24px;
+        text-align: center;
+      ">
+        <div style="font-weight: 600; color: #166534; margin-bottom: 8px;">
+          ✅ LIMPIEZA VALIDADA
+        </div>
+        <div style="font-size: 13px; color: #065F46;">
+          Validado por: <strong>${primeraLimpieza.validadoPor}</strong><br>
+          Fecha: ${primeraLimpieza.fechaValidacion || 'No especificada'}
+        </div>
+      </div>
+    `;
+        }
+
+        // Agrupar por tipo de limpieza
+        const tiposMap = {};
+        currentElementoTiposLimpieza.forEach(reg => {
+            if (!tiposMap[reg.tipoLimpieza]) {
+                tiposMap[reg.tipoLimpieza] = reg;
+            }
+        });
+
+        const tiposOrden = ['SECO', 'HUMEDO', 'DESINFECCION'];
+        const tiposNombres = {
+            'SECO': 'Limpieza Seco',
+            'HUMEDO': 'Limpieza Húmedo',
+            'DESINFECCION': 'Desinfección'
+        };
+
+        tiposOrden.forEach(tipo => {
+            if (tiposMap[tipo]) {
+                const reg = tiposMap[tipo];
+                const isCompleted = reg.estado === 'COMPLETADO' || reg.estado === 'VALIDADO';
+                const estaValidada = reg.validadoPor && reg.validadoPor !== '';
+
+                // Determinar el valor del responsable
+                const responsableValue = reg.responsable && reg.responsable !== '' ?
+                    reg.responsable :
+                    (currentUser ? currentUser.nombre : '');
+
+                html += `
+        <div class="limpieza-section">
+          <div class="section-header">
+            <span class="section-name">${tiposNombres[tipo]}</span>
+            <input type="checkbox" class="section-checkbox" id="check-${tipo}" 
+              ${isCompleted ? 'checked' : ''} 
+              ${isCompleted ? 'disabled' : ''}
+              onchange="handleLimpiezaCheckbox('${reg.id}', '${tipo}', this.checked)">
+            <div class="section-line"></div>
+          </div>
+          <div class="section-form ${isCompleted ? 'disabled' : ''}" id="form-${tipo}">
+            <div class="form-group">
+              <label class="form-label">Nombre del Responsable</label>
+              <input type="text" class="input-field" id="responsable-${tipo}" 
+                placeholder="Nombre..." value="${responsableValue}" 
+                ${isCompleted ? 'disabled' : ''}
+                ${!isCompleted ? 'readonly' : ''}
+                style="${!isCompleted ? 'background-color: #f3f4f6;' : ''}">
+              ${!isCompleted ? '<small class="form-hint">El nombre se asigna automáticamente</small>' : ''}
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fecha en que se realizó</label>
+              <input type="date" class="input-field" id="fecha-${tipo}" 
+                value="${reg.fechaRealizacion || ''}" 
+                ${isCompleted ? 'disabled' : ''}>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Observaciones</label>
+              <textarea class="textarea-field" id="observaciones-${tipo}" 
+                placeholder="Observaciones..." 
+                ${isCompleted ? 'disabled' : ''}>${reg.observaciones || ''}</textarea>
+            </div>
+            ${estaValidada ? `
+              <div class="validacion-detalle" style="
+                background: rgba(34, 197, 94, 0.05);
+                border: 1px solid rgba(34, 197, 94, 0.2);
+                border-radius: 6px;
+                padding: 12px;
+                margin-top: 12px;
+                font-size: 12px;
+                color: #065F46;
+              ">
+                <strong>Validado por:</strong> ${reg.validadoPor}<br>
+                <strong>Fecha validación:</strong> ${reg.fechaValidacion || 'No especificada'}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+            }
+        });
+
+        container.innerHTML = html;
+        console.log('✅ Secciones de limpieza renderizadas correctamente');
+    }
+
+    function handleLimpiezaCheckbox(registroId, tipo, isChecked) {
+        if (isChecked) {
+            pendingCheckboxData = {
+                registroId: registroId,
+                tipo: tipo
+            };
+
+            document.getElementById('modal-message').textContent =
+                `¿Está seguro que desea marcar la limpieza "${tipo}" como completada? Esta acción no se puede deshacer.`;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+        }
+    }
+
+    // ==================== LIMPIEZA MASIVA ====================
+    function mostrarPanelLimpiezaMasiva() {
+        if (elementosSeleccionados.size === 0) {
+            showAlert("info", "Seleccione elementos", "Por favor seleccione al menos un elemento del árbol");
+            return;
+        }
+
+        // Verificar que todos los elementos seleccionados sean válidos
+        let elementosInvalidos = [];
+        let elementosPorEstado = {
+            pendiente: 0,
+            empezado: 0,
+            otros: 0
+        };
+
+        elementosSeleccionados.forEach(elementoId => {
+            if (!puedeSeleccionarParaLimpiezaMasiva(elementoId)) {
+                elementosInvalidos.push(elementoId);
+            } else {
+                const estado = determinarEstadoElemento(elementoId);
+                if (estado === 'pendiente') {
+                    elementosPorEstado.pendiente++;
+                } else if (estado === 'empezado') {
+                    elementosPorEstado.empezado++;
+                } else {
+                    elementosPorEstado.otros++;
+                }
+            }
+        });
+
+        // Si hay elementos inválidos, mostrar alerta y removerlos
+        if (elementosInvalidos.length > 0) {
+            showAlert("warning", "Elementos no válidos",
+                `${elementosInvalidos.length} elementos seleccionados no son válidos para limpieza masiva y serán removidos.`);
+
+            // Remover los elementos inválidos
+            elementosInvalidos.forEach(elementoId => {
+                elementosSeleccionados.delete(elementoId);
+                delete elementosSeleccionadosData[elementoId];
+            });
+
+            actualizarContadorSeleccionados();
+            renderSidebarMaquinas();
+
+            if (elementosSeleccionados.size === 0) {
+                showAlert("info", "Sin elementos válidos", "No quedan elementos válidos para limpieza masiva");
+                return;
+            }
+        }
+
+        const modal = document.getElementById('limpieza-masiva-modal');
+        if (!modal) {
+            crearModalLimpiezaMasiva();
+        }
+
+        // Actualizar información en el modal
+        const countSpan = document.getElementById('limpieza-masiva-count');
+        if (countSpan) {
+            countSpan.textContent = elementosSeleccionados.size;
+        }
+
+        // Mostrar resumen de estados
+        const resumenSpan = document.getElementById('limpieza-masiva-resumen');
+        if (resumenSpan) {
+            let resumenHTML = '';
+            if (elementosPorEstado.pendiente > 0) {
+                resumenHTML += `<span style="color: #ef4444;">${elementosPorEstado.pendiente} pendientes</span>`;
+            }
+            if (elementosPorEstado.empezado > 0) {
+                if (resumenHTML) resumenHTML += ', ';
+                resumenHTML += `<span style="color: #f59e0b;">${elementosPorEstado.empezado} en proceso</span>`;
+            }
+            if (elementosPorEstado.otros > 0) {
+                if (resumenHTML) resumenHTML += ', ';
+                resumenHTML += `<span>${elementosPorEstado.otros} otros</span>`;
+            }
+
+            resumenSpan.innerHTML = resumenHTML;
+        }
+
+        // Mostrar lista de elementos seleccionados
+        const listaElementos = document.getElementById('limpieza-masiva-lista');
+        if (listaElementos) {
+            let listaHTML = '';
+            const elementosArray = Array.from(elementosSeleccionados).slice(0, 5);
+            elementosArray.forEach(elementoId => {
+                const elementoData = elementosSeleccionadosData[elementoId];
+                if (elementoData) {
+                    const estado = determinarEstadoElemento(elementoId);
+                    let estadoBadge = '';
+
+                    if (estado === 'pendiente') {
+                        estadoBadge = '<span class="estado-badge pendiente">PENDIENTE</span>';
+                    } else if (estado === 'empezado') {
+                        estadoBadge = '<span class="estado-badge empezado">EN PROCESO</span>';
+                    }
+
+                    listaHTML += `<li>${elementoData.elementoNombre} ${estadoBadge}</li>`;
+                }
+            });
+
+            if (elementosSeleccionados.size > 5) {
+                listaHTML += `<li>... y ${elementosSeleccionados.size - 5} más</li>`;
+            }
+
+            listaElementos.innerHTML = listaHTML;
+        }
+
+        // Mostrar modal
+        document.getElementById('limpieza-masiva-modal').classList.remove('hidden');
+    }
+
+    // En la función crearModalLimpiezaMasiva(), corregir los checkboxes:
+    function crearModalLimpiezaMasiva() {
+        const modal = document.createElement('div');
+        modal.id = 'limpieza-masiva-modal';
+        modal.className = 'modal limpieza-masiva-modal hidden';
+        modal.onclick = function (event) {
+            if (event.target === this) {
+                cerrarModalLimpiezaMasiva();
+            }
+        };
+
+        modal.innerHTML = `
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 class="modal-title">Limpieza Masiva</h3>
+                <button class="modal-close" onclick="cerrarModalLimpiezaMasiva()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom: 16px;">
+                    <p style="margin-bottom: 4px;">
+                        <strong><span id="limpieza-masiva-count">0</span> elementos seleccionados</strong>
+                    </p>
+                    <p style="font-size: 12px; color: #6b7280;">
+                        Estados: <span id="limpieza-masiva-resumen"></span>
+                    </p>
+                </div>
+                
+                <div id="limpieza-masiva-lista" style="
+                    background: #f9fafb;
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-bottom: 16px;
+                    font-size: 12px;
+                    color: #6b7280;
+                    max-height: 120px;
+                    overflow-y: auto;
+                ">
+                    <!-- Lista de elementos se insertará aquí -->
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Tipos de limpieza a aplicar:</label>
+                    <div class="checkbox-group-horizontal">
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="masiva-seco" checked 
+                                onchange="limpiezaMasivaData.seco = this.checked">
+                            Limpieza Seco
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="masiva-humedo" checked
+                                onchange="limpiezaMasivaData.humedo = this.checked">
+                            Limpieza Húmedo
+                        </label>
+                        <label class="checkbox-item">
+                            <input type="checkbox" id="masiva-desinfeccion" checked
+                                onchange="limpiezaMasivaData.desinfeccion = this.checked">
+                            Desinfección
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Fecha de realización:</label>
+                    <input type="date" class="input-field" id="masiva-fecha" 
+                           value="${new Date().toISOString().split('T')[0]}"
+                           max="${new Date().toISOString().split('T')[0]}">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Observaciones (opcional):</label>
+                    <textarea class="textarea-field" id="masiva-observaciones" 
+                              placeholder="Observaciones para todos los elementos..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="cerrarModalLimpiezaMasiva()">Cancelar</button>
+                <button class="btn-primary" onclick="aplicarLimpiezaMasiva()">Aplicar limpieza</button>
+            </div>
+        </div>
+    `;
+        document.body.appendChild(modal);
+
+        // Inicializar los datos
+        limpiezaMasivaData = {
+            seco: true,
+            humedo: true,
+            desinfeccion: true
+        };
+    }
+
+    function cerrarModalLimpiezaMasiva() {
+        document.getElementById('limpieza-masiva-modal').classList.add('hidden');
+    }
+
+    function aplicarLimpiezaMasiva() {
+        // Validar que haya al menos un tipo de limpieza seleccionado
+        if (!limpiezaMasivaData.seco && !limpiezaMasivaData.humedo && !limpiezaMasivaData.desinfeccion) {
+            showAlert("info", "Seleccione tipo", "Por favor seleccione al menos un tipo de limpieza");
+            return;
+        }
+
+        const fecha = document.getElementById('masiva-fecha').value;
+        if (!fecha) {
+            showAlert("info", "Fecha requerida", "Por favor seleccione la fecha de realización");
+            return;
+        }
+
+        const observaciones = document.getElementById('masiva-observaciones').value;
+
+        // Primero cerrar el modal de limpieza masiva
+        cerrarModalLimpiezaMasiva();
+
+        // Luego mostrar el modal de confirmación
+        setTimeout(() => {
+            document.getElementById('modal-message').innerHTML = `
+            <strong>¿Aplicar limpieza?</strong>
+            <br><br>
+            <div style="background: #f0f9ff; padding: 12px; border-radius: 6px; margin: 10px 0;">
+                <div style="font-weight: 600; color: #0369a1; margin-bottom: 4px;">
+                    <i class="fas fa-broom"></i> RESUMEN DE LIMPIEZA:
+                </div>
+                <div style="color: #0c4a6e; font-size: 14px;">
+                    <strong>${elementosSeleccionados.size} elementos</strong> seleccionados
+                </div>
+            </div>
+            
+            <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+                <p style="margin: 8px 0;">Tipos de limpieza a aplicar:</p>
+                <ul style="margin: 8px 0; padding-left: 20px;">
+                    ${limpiezaMasivaData.seco ? '<li>• Limpieza Seco</li>' : ''}
+                    ${limpiezaMasivaData.humedo ? '<li>• Limpieza Húmedo</li>' : ''}
+                    ${limpiezaMasivaData.desinfeccion ? '<li>• Desinfección</li>' : ''}
+                </ul>
+                <p style="margin: 8px 0;">
+                    <strong>Fecha:</strong> ${fecha}<br>
+                    <strong>Responsable:</strong> ${currentUser.nombre}
+                </p>
+                <p style="margin: 8px 0; color: #059669; font-weight: 600;">
+                    <i class="fas fa-check-circle"></i> Esta acción marcará como COMPLETADO los tipos seleccionados en todos los elementos.
+                </p>
+            </div>
+        `;
+
+            // Configurar el modal de confirmación
+            const modalTitle = document.querySelector('.modal-title');
+            if (modalTitle) {
+                modalTitle.textContent = 'Confirmar Limpieza Masiva';
+            }
+
+            const confirmBtn = document.querySelector('.btn-confirm');
+            const cancelBtn = document.querySelector('.btn-cancel');
+
+            if (confirmBtn) {
+                confirmBtn.textContent = 'Aplicar';
+                confirmBtn.style.backgroundColor = '#10b981';
+                confirmBtn.style.borderColor = '#10b981';
+            }
+
+            if (cancelBtn) {
+                cancelBtn.textContent = 'Cancelar';
+            }
+
+            document.getElementById('confirm-modal').classList.remove('hidden');
+
+            // Guardar datos para usar en la confirmación
+            window.pendingLimpiezaMasiva = {
+                fecha: fecha,
+                observaciones: observaciones
+            };
+        }, 100); // Pequeño delay para asegurar el cierre del primer modal
+    }
+
+    function confirmarLimpiezaMasiva() {
+        if (!window.pendingLimpiezaMasiva) return;
+
+        // Verificar que hay tipos seleccionados
+        if (!limpiezaMasivaData.seco && !limpiezaMasivaData.humedo && !limpiezaMasivaData.desinfeccion) {
+            showAlert("error", "No hay tipos", "Por favor seleccione al menos un tipo de limpieza");
+            return;
+        }
+
+        debugLimpiezaMasiva(); // Debug
+
+        const { fecha, observaciones } = window.pendingLimpiezaMasiva;
+
+        // Cerrar ambos modales primero
+        document.getElementById('confirm-modal').classList.add('hidden');
+        document.getElementById('limpieza-masiva-modal').classList.add('hidden');
+
+        showLoading();
+
+        // Convertir Set a Array
+        const elementosArray = Array.from(elementosSeleccionados);
+
+        console.log('🔄 Iniciando limpieza masiva para', elementosArray.length, 'elementos');
+        console.log('Tipos seleccionados:', {
+            seco: limpiezaMasivaData.seco,
+            humedo: limpiezaMasivaData.humedo,
+            desinfeccion: limpiezaMasivaData.desinfeccion
+        });
+
+        // Si no hay elementos, salir
+        if (elementosArray.length === 0) {
+            hideLoading();
+            showAlert('info', 'Sin elementos', 'No hay elementos seleccionados');
+            window.pendingLimpiezaMasiva = null;
+            return;
+        }
+
+        // Contadores para seguimiento
+        let procesados = 0;
+        let exitosos = 0;
+        let errores = 0;
+        const total = elementosArray.length;
+
+        // Procesar cada elemento
+        elementosArray.forEach(elementoId => {
+            const elementoData = elementosSeleccionadosData[elementoId];
+            if (!elementoData) {
+                procesados++;
+                if (procesados === total) {
+                    finalizarLimpiezaMasiva(exitosos, errores);
+                }
+                return;
+            }
+
+            console.log(`📤 Procesando elemento: ${elementoData.elementoNombre}`);
+
+            // Obtener registros de limpieza para este elemento
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    procesados++;
+
+                    if (result && result.success && result.registros && result.registros.length > 0) {
+                        const registros = result.registros || [];
+                        console.log(`✅ Obtenidos ${registros.length} registros para`, elementoData.elementoNombre);
+
+                        // Actualizar registros
+                        actualizarRegistrosElemento(registros, elementoData, fecha, observaciones);
+                        exitosos++;
+                    } else {
+                        errores++;
+                        console.error('❌ Error obteniendo registros para', elementoData.elementoNombre,
+                            result ? result.message : 'Sin registros');
+                    }
+
+                    // Cuando termine el procesamiento
+                    if (procesados === total) {
+                        setTimeout(() => {
+                            finalizarLimpiezaMasiva(exitosos, errores);
+                        }, 1000);
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    procesados++;
+                    errores++;
+                    console.error('❌ Error de conexión para', elementoData.elementoNombre, error);
+
+                    if (procesados === total) {
+                        setTimeout(() => {
+                            finalizarLimpiezaMasiva(exitosos, errores);
+                        }, 1000);
+                    }
+                })
+                .obtenerRegistrosLimpieza(elementoData.maquinaId, elementoId);
+        });
+    }
+
+    function actualizarRegistrosElemento(registros, elementoData, fecha, observaciones) {
+        console.log(`🔍 DEBUG actualizarRegistrosElemento para ${elementoData.elementoNombre}:`);
+        console.log('Registros recibidos:', registros);
+        console.log('limpiezaMasivaData:', limpiezaMasivaData);
+
+        // Filtrar registros por los tipos seleccionados
+        const tiposSeleccionados = [];
+        if (limpiezaMasivaData.seco) tiposSeleccionados.push('SECO');
+        if (limpiezaMasivaData.humedo) tiposSeleccionados.push('HUMEDO');
+        if (limpiezaMasivaData.desinfeccion) tiposSeleccionados.push('DESINFECCION');
+
+        console.log('Tipos seleccionados para buscar:', tiposSeleccionados);
+
+        // Si no hay tipos seleccionados, mostrar alerta
+        if (tiposSeleccionados.length === 0) {
+            console.error('❌ ERROR: No hay tipos de limpieza seleccionados en limpiezaMasivaData');
+            console.error('limpiezaMasivaData actual:', limpiezaMasivaData);
+            return;
+        }
+
+        console.log(`🔄 Buscando ${tiposSeleccionados.length} tipos para`, elementoData.elementoNombre);
+
+        // Para cada tipo seleccionado, encontrar el registro correspondiente
+        tiposSeleccionados.forEach(tipo => {
+            console.log(`🔍 Buscando registro tipo ${tipo}...`);
+
+            const registro = registros.find(r => {
+                console.log(`  Registro: tipo=${r.tipoLimpieza}, estado=${r.estado}`);
+                return r.tipoLimpieza === tipo &&
+                    (r.estado !== 'COMPLETADO' && r.estado !== 'VALIDADO');
+            });
+
+            if (registro) {
+                console.log(`✅ Encontrado registro para ${tipo} (ID: ${registro.id}) en`, elementoData.elementoNombre);
+
+                const datos = {
+                    estado: 'COMPLETADO',
+                    responsable: currentUser.nombre,
+                    fechaRealizacion: fecha,
+                    observaciones: observaciones || `Limpieza masiva aplicada el ${fecha}`,
+                    fechaFinalizacion: new Date().toISOString()
+                };
+
+                console.log(`📤 Enviando datos para ${tipo}:`, datos);
+
+                // Enviar actualización al servidor
+                google.script.run
+                    .withSuccessHandler(function (result) {
+                        if (result && result.success) {
+                            console.log(`✅ ${tipo} actualizado para`, elementoData.elementoNombre);
+                        } else {
+                            console.error(`❌ Error actualizando ${tipo} para`, elementoData.elementoNombre, result ? result.message : '');
+                        }
+                    })
+                    .withFailureHandler(function (error) {
+                        console.error(`❌ Error de conexión para ${tipo} en`, elementoData.elementoNombre, error);
+                    })
+                    .actualizarRegistroLimpiezaCompleto(registro.id, datos);
+            } else {
+                console.warn(`⚠️ No se encontró registro para ${tipo} en`, elementoData.elementoNombre,
+                    'o ya está COMPLETADO/VALIDADO');
+            }
+        });
+    }
+
+    // Agregar esta función después de limpiarSeleccionMasiva
+    function limpiarSeleccionDespuesDeLimpieza() {
+        console.log('🧹 Limpiando selección después de limpieza...');
+
+        // Desmarcar checkboxes en sidebar
+        elementosSeleccionados.forEach(elementoId => {
+            const checkbox = document.getElementById(`sidebar-check-${elementoId}`);
+            if (checkbox) {
+                checkbox.checked = false;
+                const elementoDiv = checkbox.closest('.elemento-item');
+                if (elementoDiv) {
+                    elementoDiv.classList.remove('selected');
+                }
+            }
+        });
+
+        // Limpiar datos
+        elementosSeleccionados.clear();
+        elementosSeleccionadosData = {};
+        actualizarContadorSeleccionados();
+
+        console.log('✅ Selección limpiada');
+    }
+
+    function debugLimpiezaMasiva() {
+        console.log('🔍 DEBUG Limpieza Masiva:');
+        console.log('1. limpiezaMasivaData:', limpiezaMasivaData);
+        console.log('2. Elementos seleccionados:', elementosSeleccionados.size);
+        console.log('3. Tipos seleccionados:', {
+            seco: limpiezaMasivaData.seco,
+            humedo: limpiezaMasivaData.humedo,
+            desinfeccion: limpiezaMasivaData.desinfeccion
+        });
+    }
+
+</script>

@@ -1,0 +1,33 @@
+<script>
+
+    // ==================== TABS ====================
+    function switchTab(tabName) {
+        // Si intenta acceder a planeación y no es jefe, redirigir a avances
+        if (tabName === 'planeacion' && currentUser.rol !== 'jefe') {
+            showAlert("info", "Acceso restringido", "Solo los jefes pueden acceder a la planeación");
+            switchTab('avances');
+            return;
+        }
+
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('tab-' + tabName).classList.add('active');
+
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+        document.getElementById('content-' + tabName).classList.remove('hidden');
+
+        if (tabName === 'avances') {
+            loadEstadisticas();
+        } else if (tabName === 'proceso') {
+            loadProceso();
+            loadPlaneaciones(); // Cargar planeaciones aquí también
+        } else if (tabName === 'planeacion') {
+            // Solo cargar el árbol, no las planeaciones existentes
+            renderMaquinasTree();
+        }
+    }
+
+    function showMainView() {
+        switchTab('planeacion');
+    }
+
+</script>

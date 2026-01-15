@@ -1,0 +1,196 @@
+<script>
+
+    // ==================== AUTENTICACIÓN ====================
+    function handleLogin() {
+        console.log('🔐 Intentando login...');
+        const cedula = document.getElementById('cedula-input').value.trim();
+
+        if (!cedula) {
+            showError('login-error', 'Por favor ingrese su cédula');
+            return;
+        }
+
+        hideError('login-error');
+        showLoading();
+
+        console.log('📤 Enviando cédula:', cedula);
+
+        google.script.run
+            .withSuccessHandler(onLoginSuccess)
+            .withFailureHandler(onLoginError)
+            .autenticarUsuario(cedula);
+    }
+
+    function onLoginSuccess(result) {
+        hideLoading();
+        console.log('📥 Respuesta login:', result);
+
+        if (result && result.success) {
+            currentUser = result.usuario;
+
+            // Limpiar y actualizar UI de usuario
+            const userNameDisplay = document.getElementById('user-name-display');
+            userNameDisplay.textContent = currentUser.nombre;
+            userNameDisplay.innerHTML = ''; // Limpiar contenido previo
+            userNameDisplay.appendChild(document.createTextNode(currentUser.nombre));
+
+            actualizarIndicadorProceso();
+
+            // Cambiar a vista dashboard
+            document.getElementById('login-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('hidden');
+
+            // Resetear pestañas a la principal (avances o proceso según rol)
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+
+            // Ocultar tab de planeaciones si no es jefe
+            const tabPlaneacion = document.getElementById('tab-planeacion');
+            if (currentUser.rol !== 'jefe') {
+                tabPlaneacion.classList.add('hidden');
+
+                // Mostrar tab de avances por defecto para operarios
+                document.getElementById('tab-avances').classList.add('active');
+                document.getElementById('content-avances').classList.remove('hidden');
+            } else {
+                // Mostrar tab de planeación por defecto para jefes
+                tabPlaneacion.classList.remove('hidden');
+                tabPlaneacion.classList.add('active');
+                document.getElementById('content-planeacion').classList.remove('hidden');
+            }
+
+            // Limpiar datos previos
+            resetearDatos();
+
+            // Cargar datos iniciales
+            loadInitialData();
+
+            showAlert("success", "Sesión iniciada", `Bienvenido/a ${currentUser.nombre}`);
+        } else {
+            showError('login-error', result ? result.message : 'Error de autenticación');
+        }
+    }
+
+    function onLoginError(error) {
+        hideLoading();
+        console.error('❌ Error login:', error);
+        showError('login-error', 'Error de conexión. Intente nuevamente.');
+    }
+
+    function handleLogout() {
+        console.log('🚪 Cerrando sesión...');
+
+        // Resetear todas las variables globales
+        currentUser = null;
+        maquinasData = [];
+        currentMaquinaId = null;
+        currentElementoId = null;
+        currentElementoNombre = null;
+        currentMaquinaNombre = null;
+        selectedElementosConfig = {};
+        pendingCheckboxData = null;
+        currentElementoTiposLimpieza = [];
+        pendingValidation = false;
+        estadosElementosCache = {};
+
+        // Limpiar todos los contenedores de UI
+        const containersToClear = [
+            'maquinas-menu',
+            'maquinas-tree',
+            'elementos-config-list',
+            'avances-grid',
+            'proceso-content',
+            'planeaciones-grid',
+            'limpieza-sections'
+        ];
+
+        containersToClear.forEach(id => {
+            const container = document.getElementById(id);
+            if (container) container.innerHTML = '';
+        });
+
+        // Resetear formularios
+        const forms = document.querySelectorAll('input, textarea, select');
+        forms.forEach(form => {
+            if (form.type !== 'button' && form.type !== 'submit') {
+                form.value = '';
+                form.checked = false;
+            }
+        });
+
+        // Resetear select de frecuencia
+        const selectFrecuencia = document.getElementById('select-frecuencia');
+        if (selectFrecuencia) selectFrecuencia.value = 'Mensual';
+
+        // Desmarcar todos los checkboxes del árbol
+        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            checkbox.checked = false;
+            checkbox.indeterminate = false;
+        });
+
+        // Remover clases selected de elementos del árbol
+        document.querySelectorAll('.tree-elemento.selected').forEach(el => {
+            el.classList.remove('selected');
+        });
+
+        // Resetear pestañas
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.add('hidden'));
+
+        // Resetear elemento activo en sidebar
+        document.querySelectorAll('.elemento-item.active').forEach(el => {
+            el.classList.remove('active');
+        });
+
+        // Resetear indicador de proceso
+        const procesoIndicator = document.getElementById('proceso-indicator');
+        if (procesoIndicator) procesoIndicator.innerHTML = '';
+
+        // Ocultar botones de validación
+        const btnValidarJefe = document.getElementById('btn-validar-jefe');
+        const btnFinalizar = document.getElementById('btn-finalizar');
+        if (btnValidarJefe) btnValidarJefe.classList.add('hidden');
+        if (btnFinalizar) btnFinalizar.classList.add('hidden');
+
+        // Cambiar vistas
+        document.getElementById('dashboard-view').classList.add('hidden');
+        document.getElementById('login-view').classList.remove('hidden');
+
+        // Resetear campo de cédula
+        const cedulaInput = document.getElementById('cedula-input');
+        if (cedulaInput) {
+            cedulaInput.value = '';
+            cedulaInput.focus(); // Poner foco en el campo
+        }
+
+        // Mostrar mensaje de despedida
+        showAlert("info", "Sesión cerrada", "Ha cerrado sesión correctamente", 3000);
+
+        console.log('✅ Sesión cerrada completamente');
+    }
+
+    function resetearDatos() {
+        // Resetear datos de máquinas
+        maquinasData = [];
+
+        // Resetear configuraciones seleccionadas
+        selectedElementosConfig = {};
+
+        // Resetear cache de estados
+        estadosElementosCache = {};
+
+        // Resetear datos de elemento actual
+        currentMaquinaId = null;
+        currentElementoId = null;
+        currentElementoNombre = null;
+        currentMaquinaNombre = null;
+        currentElementoTiposLimpieza = [];
+
+        // Resetear estado de validación pendiente
+        pendingValidation = false;
+        pendingCheckboxData = null;
+
+        console.log('🔄 Datos reseteados para nueva sesión');
+    }
+
+</script>

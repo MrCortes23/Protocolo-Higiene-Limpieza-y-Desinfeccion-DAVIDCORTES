@@ -1,0 +1,57 @@
+<script>
+
+    function showAlert(type, title, message, duration = 5000) {
+        // Create alert container if it doesn't exist
+        let alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) {
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alertContainer';
+            alertContainer.className = 'alert-container';
+            document.body.appendChild(alertContainer);
+        }
+
+        // Create alert element
+        const alert = document.createElement('div');
+        alert.className = `alert ${type}`;
+
+        const iconSymbols = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'i'
+        };
+
+        alert.innerHTML = `
+            <div class="alert-icon">${iconSymbols[type] || 'i'}</div>
+            <div class="alert-content">
+                <div class="alert-title">${title}</div>
+                <div class="alert-message">${message}</div>
+            </div>
+            <button class="alert-close" onclick="closeAlert(this)">&times;</button>
+            <div class="alert-progress"></div>
+        `;
+
+        alertContainer.appendChild(alert);
+
+        // Show alert with animation
+        setTimeout(() => {
+            alert.classList.add('show');
+        }, 100);
+
+        // Auto remove alert
+        setTimeout(() => {
+            closeAlert(alert.querySelector('.alert-close'));
+        }, duration);
+    }
+
+    function closeAlert(closeBtn) {
+        const alert = closeBtn.closest('.alert');
+        alert.classList.remove('show');
+        setTimeout(() => {
+            if (alert.parentNode) {
+                alert.parentNode.removeChild(alert);
+            }
+        }, 400);
+    }
+
+</script>

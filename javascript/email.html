@@ -1,0 +1,14 @@
+<script>
+
+  const CORREOS_POR_TURNO = {
+    'MAÑANA': 'pragestionhumana@pastascomarrico.com',
+    'TARDE': 'pragestionhumana@pastascomarrico.com',
+    'NOCHE': 'pragestionhumana@pastascomarrico.com'
+  };
+
+  function obtenerCorreoPorTurno(turno) {
+    turno = turno.toUpperCase();
+    return CORREOS_POR_TURNO[turno] || 'pragestionhumana@pastascomarrico.com'; // Valor por defecto
+  }
+
+</script>

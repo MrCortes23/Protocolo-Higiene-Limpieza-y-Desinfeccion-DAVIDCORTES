@@ -1,0 +1,155 @@
+<script>
+
+  // ==================== FUNCIÓN PARA SELECCIONAR TODOS ====================
+  function seleccionarTodosElementosPlaneados() {
+    if (!maquinasData) return;
+
+    elementosSeleccionados.clear();
+    elementosSeleccionadosData = {};
+
+    let elementosPlaneadosCount = 0;
+
+    // Recorrer todas las máquinas, componentes y elementos
+    maquinasData.forEach(maquina => {
+      if (maquina.componentes) {
+        maquina.componentes.forEach(componente => {
+          if (componente.elementos) {
+            componente.elementos.forEach(elemento => {
+              if (tienePlaneacionActiva(elemento.id)) {
+                elementosSeleccionados.add(elemento.id);
+                elementosSeleccionadosData[elemento.id] = {
+                  elementoId: elemento.id,
+                  maquinaId: maquina.id,
+                  elementoNombre: elemento.nombre
+                };
+                elementosPlaneadosCount++;
+              }
+            });
+          }
+        });
+      }
+    });
+
+    // Actualizar UI
+    actualizarContadorSeleccionados();
+
+    if (elementosPlaneadosCount === 0) {
+      showAlert("info", "No hay elementos", "No hay elementos con planeación activa para seleccionar");
+    } else {
+      showAlert("success", "Seleccionados", `${elementosPlaneadosCount} elementos planeados seleccionados`);
+    }
+
+    // Recargar la sidebar para mostrar los checkboxes marcados
+    renderSidebarMaquinas();
+  }
+
+  // ==================== FUNCIÓN PARA DESELECCIONAR TODOS ====================
+  function deseleccionarTodosElementos() {
+    elementosSeleccionados.clear();
+    elementosSeleccionadosData = {};
+
+    actualizarContadorSeleccionados();
+    renderSidebarMaquinas();
+  }
+
+  function puedeSeleccionarParaLimpiezaMasiva(elementoId) {
+    const estado = determinarEstadoElemento(elementoId);
+
+    // Solo se puede seleccionar si está en estado PENDIENTE o EN-PROCESO
+    // Esto significa que tiene planeación pero aún no está completado
+    return estado === 'pendiente' || estado === 'empezado'; // 'empezado' = EN-PROCESO
+  }
+
+  function seleccionarTodosElementosPendientes() {
+    if (!maquinasData) return;
+
+    elementosSeleccionados.clear();
+    elementosSeleccionadosData = {};
+
+    let elementosSeleccionablesCount = 0;
+
+    // Recorrer todas las máquinas, componentes y elementos
+    maquinasData.forEach(maquina => {
+      if (maquina.componentes) {
+        maquina.componentes.forEach(componente => {
+          if (componente.elementos) {
+            componente.elementos.forEach(elemento => {
+              if (puedeSeleccionarParaLimpiezaMasiva(elemento.id)) {
+                elementosSeleccionados.add(elemento.id);
+                elementosSeleccionadosData[elemento.id] = {
+                  elementoId: elemento.id,
+                  maquinaId: maquina.id,
+                  elementoNombre: elemento.nombre
+                };
+                elementosSeleccionablesCount++;
+              }
+            });
+          }
+        });
+      }
+    });
+
+    // Actualizar UI
+    actualizarContadorSeleccionados();
+
+    if (elementosSeleccionablesCount === 0) {
+      showAlert("info", "No hay elementos", "No hay elementos pendientes o en proceso para seleccionar");
+    } else {
+      showAlert("success", "Seleccionados", `${elementosSeleccionablesCount} elementos pendientes/en proceso seleccionados`);
+    }
+
+    // Recargar la sidebar para mostrar los checkboxes marcados
+    renderSidebarMaquinas();
+  }
+
+  function toggleElementoSelection(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+    const elemCheck = document.getElementById('check-elem-' + elementoId);
+    if (!elemCheck) return;
+
+    const isChecked = elemCheck.checked;
+
+    if (isChecked) {
+      addElementoToConfig(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre);
+    } else {
+      removeElementoFromConfig(elementoId);
+    }
+
+    // Actualizar estado del componente y máquina
+    const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+    if (maquina && maquina.componentes) {
+      // Encontrar a qué componente pertenece este elemento
+      for (const componente of maquina.componentes) {
+        const elemento = componente.elementos.find(e => e.id.toString() === elementoId.toString());
+        if (elemento) {
+          updateComponenteCheckState(maquinaId, componente.id);
+          break;
+        }
+      }
+    }
+
+    updateMaquinaCheckState(maquinaId);
+    updateElementosConfigUI();
+  }
+
+  function selectElementoFromSidebar(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+    // Directamente llamar a la función de selección individual
+    selectElemento(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre);
+  }
+
+  function limpiarSeleccionMasiva() {
+    elementosSeleccionados.clear();
+    elementosSeleccionadosData = {};
+    actualizarContadorSeleccionados();
+
+    // Limpiar checkboxes en sidebar
+    document.querySelectorAll('.sidebar-checkbox:checked').forEach(checkbox => {
+      checkbox.checked = false;
+    });
+
+    // Limpiar clases selected
+    document.querySelectorAll('.elemento-item.selected').forEach(item => {
+      item.classList.remove('selected');
+    });
+  }
+
+</script>

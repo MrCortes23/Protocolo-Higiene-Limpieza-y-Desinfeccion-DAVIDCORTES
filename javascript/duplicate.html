@@ -1,0 +1,78 @@
+<script>
+
+    function cerrarModalLimpiezaMasiva() {
+        const modal = document.getElementById('limpieza-masiva-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+
+            // NO resetear limpiezaMasivaData aquí, mantener el estado
+            // Solo limpiar los campos de fecha y observaciones
+
+            // Limpiar campos
+            const fechaInput = document.getElementById('masiva-fecha');
+            const observacionesInput = document.getElementById('masiva-observaciones');
+
+            if (fechaInput) fechaInput.value = new Date().toISOString().split('T')[0];
+            if (observacionesInput) observacionesInput.value = '';
+        }
+    }
+
+    function limpiarDatosDuplicados() {
+        if (!maquinasData || maquinasData.length === 0) return;
+
+        console.log('🧹 Limpiando datos duplicados...');
+
+        // Usar un Map para eliminar máquinas duplicadas por ID
+        const maquinasUnicas = new Map();
+
+        maquinasData.forEach(maquina => {
+            const maquinaKey = maquina.id ? maquina.id.toString() : maquina.nombre;
+            if (!maquinasUnicas.has(maquinaKey)) {
+                maquinasUnicas.set(maquinaKey, maquina);
+            } else {
+                console.warn(`⚠️ Máquina duplicada eliminada: ${maquina.nombre} (ID: ${maquina.id})`);
+            }
+        });
+
+        // Actualizar maquinasData con datos limpios
+        const maquinasLimpias = Array.from(maquinasUnicas.values());
+
+        // Verificar que no haya máquinas con el mismo nombre
+        const nombresUnicos = new Set();
+        const maquinasFinales = [];
+
+        maquinasLimpias.forEach(maquina => {
+            if (!nombresUnicos.has(maquina.nombre)) {
+                nombresUnicos.add(maquina.nombre);
+                maquinasFinales.push(maquina);
+            } else {
+                console.warn(`⚠️ Máquina con nombre duplicado eliminada: ${maquina.nombre}`);
+            }
+        });
+
+        maquinasData = maquinasFinales;
+        console.log(`✅ Datos limpiados: ${maquinasData.length} máquinas únicas`);
+    }
+
+    function debugDuplicacion() {
+        console.log('🐛 DEBUG - Causas posibles de duplicación:');
+        console.log('1. maquinasData length:', maquinasData ? maquinasData.length : 0);
+
+        if (maquinasData) {
+            const nombres = maquinasData.map(m => m.nombre);
+            const duplicados = nombres.filter((nombre, index) => nombres.indexOf(nombre) !== index);
+            console.log('2. Nombres duplicados:', [...new Set(duplicados)]);
+
+            const ids = maquinasData.map(m => m.id);
+            const idsDuplicados = ids.filter((id, index) => ids.indexOf(id) !== index);
+            console.log('3. IDs duplicados:', [...new Set(idsDuplicados)]);
+        }
+
+        const sidebarContainer = document.getElementById('maquinas-menu');
+        const maquinasEnDOM = sidebarContainer.querySelectorAll('.submenu-wrapper');
+        console.log('4. Máquinas en DOM:', maquinasEnDOM.length);
+
+        console.log('5. isRenderingSidebar:', isRenderingSidebar);
+    }
+
+</script>

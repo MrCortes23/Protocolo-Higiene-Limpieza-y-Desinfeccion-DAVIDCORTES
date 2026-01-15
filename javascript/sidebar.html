@@ -1,0 +1,297 @@
+<script>
+
+    // ==================== SIDEBAR ====================
+    function renderSidebarMaquinas() {
+        // Si ya se está renderizando, salir
+        if (isRenderingSidebar) {
+            console.log('⏸️  Ya se está renderizando el sidebar, omitiendo...');
+            return;
+        }
+
+        isRenderingSidebar = true;
+
+        const container = document.getElementById('maquinas-menu');
+        container.innerHTML = '';
+
+        // Añadir panel de acciones
+        const actionPanel = document.createElement('div');
+        actionPanel.className = 'sidebar-actions-panel';
+        actionPanel.innerHTML = `
+        <div class="sidebar-action-item" onclick="mostrarPanelLimpiezaMasiva()">
+            <i class="fas fa-broom"></i>
+            <span>Limpieza</span>
+            <span id="selected-count" class="selected-count">${elementosSeleccionados.size}</span>
+        </div>
+        <div class="selection-actions">
+            <button class="selection-btn" onclick="seleccionarTodosElementosPendientes()" title="Seleccionar todos los pendientes">
+                <i class="fas fa-check-square"></i>
+            </button>
+            <button class="selection-btn" onclick="deseleccionarTodosElementos()" title="Deseleccionar todos">
+                <i class="fas fa-square"></i>
+            </button>
+        </div>
+    `;
+        container.appendChild(actionPanel);
+
+        if (!maquinasData || maquinasData.length === 0) {
+            container.innerHTML += '<p style="font-size: 12px; color: #9CA3AF; padding: 10px;">No hay máquinas disponibles</p>';
+            return;
+        }
+
+        // Primero cargar todos los estados de elementos
+        cargarEstadosElementos().then(() => {
+            // Usar el ID de la máquina directamente, no maquinaIndex
+            maquinasData.forEach(maquina => {
+                const maquinaDiv = document.createElement('div');
+                maquinaDiv.className = 'submenu-wrapper';
+
+                // Usar el ID real de la máquina en lugar de un índice
+                const submenuId = 'submenu-sidebar-' + maquina.id;
+                const estadoMaquina = determinarEstadoMaquina(maquina.id);
+
+                // Generar HTML para componentes y elementos
+                let componentesHtml = '';
+
+                if (maquina.componentes && maquina.componentes.length > 0) {
+                    componentesHtml = maquina.componentes.map(componente => {
+                        const componenteSubmenuId = `comp-${maquina.id}-${componente.id}`;
+                        const estadoComponente = determinarEstadoComponente(maquina.id, componente.id);
+
+                        // Filtrar elementos por responsable según el rol
+                        let elementosFiltrados = [];
+                        if (componente.elementos) {
+                            elementosFiltrados = componente.elementos.filter(elem => {
+                                // Si el usuario es jefe, mostrar todos los elementos
+                                if (currentUser.rol.toLowerCase() === 'jefe') {
+                                    return true;
+                                }
+
+                                // Obtener responsable del elemento
+                                const responsableElemento = obtenerResponsableElemento(elem.id);
+                                const rolUsuario = currentUser.rol.toLowerCase();
+                                const tienePlaneacion = tienePlaneacionActiva(elem.id);
+
+                                // Si el elemento NO tiene planeación, siempre mostrarlo (para todos los roles)
+                                if (!tienePlaneacion) {
+                                    return true;
+                                }
+
+                                // Si el usuario es operario, mostrar solo elementos de operario O sin planeación
+                                if (rolUsuario === 'operario') {
+                                    return responsableElemento === 'OPERARIO';
+                                }
+
+                                // Si el usuario es contratista, mostrar solo elementos de contratista O sin planeación
+                                if (rolUsuario === 'contratista') {
+                                    return responsableElemento === 'CONTRATISTA';
+                                }
+
+                                // Por defecto, mostrar todos
+                                return true;
+                            });
+                        }
+
+                        // Si no hay elementos después de filtrar, no mostrar el componente
+                        if (elementosFiltrados.length === 0 && currentUser.rol !== 'jefe') {
+                            return '';
+                        }
+
+                        const elementosHtml = elementosFiltrados.map((elem) => {
+                            const estadoElemento = determinarEstadoElemento(elem.id);
+                            const puedeSeleccionar = puedeSeleccionarParaLimpiezaMasiva(elem.id);
+                            const tienePlaneacion = tienePlaneacionActiva(elem.id); // ← Esta función ya existe
+                            const claseEstado = `estado-${estadoElemento}`;
+                            const isSelected = elementosSeleccionados.has(elem.id);
+
+                            // Determinar icono según estado
+                            let icono = '';
+                            let color = '#9ca3af';
+                            let tooltip = '';
+
+                            if (!tienePlaneacion) {
+                                icono = 'fa-calendar-times';
+                                tooltip = 'Elemento sin planeación';
+                                color = '#9ca3af'; // Gris para elementos sin planeación
+                            } else if (estadoElemento === 'terminado' || estadoElemento === 'en-proceso') {
+                                icono = 'fa-check-circle';
+                                color = estadoElemento === 'terminado' ? '#10b981' : '#f59e0b';
+                                tooltip = estadoElemento === 'terminado' ? 'Limpieza completada' : 'Limpieza en proceso';
+                            } else if (estadoElemento === 'empezado') {
+                                icono = 'fa-spinner';
+                                color = '#f59e0b';
+                                tooltip = 'Limpieza iniciada';
+                            } else if (estadoElemento === 'pendiente') {
+                                icono = 'fa-clock';
+                                color = '#ef4444';
+                                tooltip = 'Limpieza pendiente';
+                            } else {
+                                icono = 'fa-question-circle';
+                                tooltip = 'Estado desconocido';
+                            }
+
+                            // SOLO mostrar badge de responsable si el elemento tiene planeación
+                            let badgeResponsable = '';
+                            if (tienePlaneacion) {
+                                const responsable = obtenerResponsableElemento(elem.id);
+                                badgeResponsable = `<span class="responsable-badge ${responsable.toLowerCase()}">${responsable === 'OPERARIO' ? 'OP' : 'CT'}</span>`;
+                            }
+
+                            // Solo mostrar checkbox si el elemento PUEDE seleccionarse para limpieza masiva
+                            if (puedeSeleccionar) {
+                                return `
+                            <div class="elemento-item ${claseEstado} ${isSelected ? 'selected' : ''} seleccionable" 
+                                onclick="handleElementoSelection('${elem.id}', '${maquina.id}', '${elem.nombre}', event)"
+                                title="${tooltip}${tienePlaneacion ? ' - Responsable: ' + obtenerResponsableElemento(elem.id) : ''}">
+                                <input type="checkbox" 
+                                    class="sidebar-checkbox" 
+                                    id="sidebar-check-${elem.id}"
+                                    ${isSelected ? 'checked' : ''}
+                                    onclick="event.stopPropagation(); handleCheckboxClick('${elem.id}', '${maquina.id}', '${elem.nombre}', event)">
+                                <span class="elemento-nombre">${elem.nombre}</span>
+                                ${badgeResponsable}
+                                <span class="elemento-indicador">
+                                    <i class="fas ${icono}" style="color: ${color}; font-size: 10px;"></i>
+                                </span>
+                            </div>
+                        `;
+                            } else {
+                                return `
+                            <div class="elemento-item ${claseEstado} no-seleccionable" 
+                                onclick="selectElementoFromSidebar('${maquina.id}', '${elem.id}', '${maquina.nombre}', '${elem.nombre}', '${componente.nombre}')"
+                                title="${tooltip}${tienePlaneacion ? ' - Responsable: ' + obtenerResponsableElemento(elem.id) : ''} - No se puede seleccionar para limpieza masiva">
+                                <span class="elemento-nombre">${elem.nombre}</span>
+                                ${badgeResponsable}
+                                <span class="elemento-indicador">
+                                    <i class="fas ${icono}" style="color: ${color}; font-size: 10px;"></i>
+                                </span>
+                            </div>
+                        `;
+                            }
+                        }).join('');
+
+                        return `
+                        <div class="submenu-wrapper">
+                            <div class="submenu-item componente-item ${estadoComponente}" onclick="toggleSubmenu('${componenteSubmenuId}')">
+                                <span>${componente.nombre}</span>
+                                <span class="menu-arrow" id="arrow-${componenteSubmenuId}">▼</span>
+                            </div>
+                            <div id="${componenteSubmenuId}" class="submenu-content hidden">
+                                ${elementosHtml}
+                            </div>
+                        </div>
+                    `;
+                    }).join('');
+                }
+
+                // Si no hay componentes después de filtrar, no mostrar la máquina
+                if (componentesHtml === '' && currentUser.rol !== 'jefe') {
+                    return;
+                }
+
+                maquinaDiv.innerHTML = `
+                <div class="submenu-item maquina-item ${estadoMaquina}" onclick="toggleSubmenu('${submenuId}')">
+                    <span>${maquina.nombre}</span>
+                    <span class="menu-arrow" id="arrow-${submenuId}">▼</span>
+                </div>
+                <div id="${submenuId}" class="submenu-content hidden">
+                    ${componentesHtml}
+                </div>
+            `;
+                container.appendChild(maquinaDiv);
+            });
+
+            isRenderingSidebar = false;
+            actualizarContadorSeleccionados();
+        });
+    }
+
+    function tienePlaneacionActiva(elementoId) {
+        const estado = determinarEstadoElemento(elementoId);
+
+        // Elemento tiene planeación activa si tiene algún estado diferente de 'no-planeado'
+        return estado !== 'no-planeado';
+    }
+
+    function verificarElementosPlaneados() {
+        return new Promise((resolve) => {
+            // Obtener todas las planeaciones
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    const elementosPlaneados = new Set();
+
+                    if (result && result.success && result.planeaciones) {
+                        result.planeaciones.forEach(planeacion => {
+                            if (planeacion.elementosConfig && Array.isArray(planeacion.elementosConfig)) {
+                                planeacion.elementosConfig.forEach(componenteConfig => {
+                                    if (componenteConfig.elementos && Array.isArray(componenteConfig.elementos)) {
+                                        componenteConfig.elementos.forEach(elemento => {
+                                            if (elemento.elementoId) {
+                                                elementosPlaneados.add(elemento.elementoId.toString());
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    window.elementosConPlaneacion = elementosPlaneados;
+                    console.log('✅ Elementos con planeación:', elementosPlaneados.size);
+                    resolve(elementosPlaneados);
+                })
+                .withFailureHandler(function () {
+                    window.elementosConPlaneacion = new Set();
+                    resolve(new Set());
+                })
+                .obtenerPlaneacionesPorProceso(currentUser ? currentUser.proceso : 'GENERAL');
+        });
+    }
+
+    function toggleMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        const arrow = document.getElementById(menuId + '-arrow');
+
+        if (menu) menu.classList.toggle('hidden');
+        if (arrow) arrow.classList.toggle('rotated');
+    }
+
+    function toggleSubmenu(submenuId) {
+        const submenu = document.getElementById(submenuId);
+        const arrow = document.getElementById('arrow-' + submenuId);
+
+        if (submenu) submenu.classList.toggle('hidden');
+        if (arrow) arrow.classList.toggle('rotated');
+    }
+
+     function recargarSidebar() {
+    console.log('🔄 Recargando sidebar...');
+
+    // Limpiar selección
+    limpiarSeleccionMasiva();
+
+    showLoading();
+
+    // Recargar datos desde el servidor
+    google.script.run
+      .withSuccessHandler(function (result) {
+        if (result && result.success) {
+          maquinasData = result.maquinas || [];
+          limpiarDatosDuplicados();
+          // Cargar estados y actualizar sidebar
+          cargarEstadosElementos().then(() => {
+            // renderSidebarMaquinas ya se llama dentro de cargarEstadosElementos
+            hideLoading();
+          });
+        } else {
+          hideLoading();
+          showAlert('error', 'Error', 'No se pudieron cargar los datos');
+        }
+      })
+      .withFailureHandler(function (error) {
+        hideLoading();
+        showAlert('error', 'Error de conexión', error.message);
+      })
+      .obtenerMaquinasConElementos(currentUser.proceso);
+  }
+
+</script>

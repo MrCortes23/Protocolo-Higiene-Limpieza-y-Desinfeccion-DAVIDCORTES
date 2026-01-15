@@ -1,0 +1,144 @@
+<script>
+
+    function actualizarEstadoCheckboxes() {
+        // Verificar todos los checkboxes en sidebar
+        document.querySelectorAll('.sidebar-checkbox').forEach(checkbox => {
+            const elementoId = checkbox.id.replace('check-', '');
+            const puedeSeleccionar = puedeSeleccionarParaLimpiezaMasiva(elementoId);
+
+            if (!puedeSeleccionar) {
+                checkbox.disabled = true;
+                checkbox.parentElement.classList.add('no-seleccionable');
+                checkbox.parentElement.classList.remove('seleccionable');
+            } else {
+                checkbox.disabled = false;
+                checkbox.parentElement.classList.add('seleccionable');
+                checkbox.parentElement.classList.remove('no-seleccionable');
+            }
+        });
+    }
+
+    function verificarConsolidadoParaReporte(maquinaId) {
+        return new Promise((resolve) => {
+            // Verificar si la máquina está en el consolidado
+            const maquinaElement = document.querySelector(`[data-maquina-id="${maquinaId}"]`);
+
+            if (!maquinaElement) {
+                resolve({
+                    success: false,
+                    message: 'Máquina no encontrada en el consolidado'
+                });
+                return;
+            }
+
+            // Verificar si está validada
+            const estadoValidacion = maquinaElement.querySelector('.validacion-resumen');
+            const estaValidada = estadoValidacion && estadoValidacion.style.display !== 'none';
+
+            if (!estaValidada) {
+                resolve({
+                    success: false,
+                    message: 'La máquina no está validada'
+                });
+                return;
+            }
+
+            // Obtener información de validación
+            const validador = maquinaElement.querySelector(`#validador-${maquinaId}`)?.textContent || 'Desconocido';
+            const fechaValidacion = maquinaElement.querySelector(`#fecha-validacion-${maquinaId}`)?.textContent || 'Desconocida';
+
+            resolve({
+                success: true,
+                datos: {
+                    validador: validador,
+                    fechaValidacion: fechaValidacion,
+                    estaValidada: true
+                }
+            });
+        });
+    }
+
+    function handleCheckboxClick(elementoId, maquinaId, elementoNombre, event) {
+        event.stopPropagation();
+
+        const checkbox = event.target;
+        const isChecked = checkbox.checked;
+
+        // Verificar si el elemento puede seleccionarse
+        if (!puedeSeleccionarParaLimpiezaMasiva(elementoId)) {
+            const estado = determinarEstadoElemento(elementoId);
+            let mensaje = '';
+
+            switch (estado) {
+                case 'no-planeado':
+                    mensaje = "Este elemento no tiene planeación activa";
+                    break;
+                case 'terminado':
+                case 'en-proceso':
+                    mensaje = "Este elemento ya tiene limpieza completada o validada";
+                    break;
+                default:
+                    mensaje = "Este elemento no se puede seleccionar para limpieza masiva";
+            }
+
+            showAlert("info", "No seleccionable", mensaje);
+            checkbox.checked = false;
+            return;
+        }
+
+        // Actualizar la selección
+        if (isChecked) {
+            elementosSeleccionados.add(elementoId);
+            elementosSeleccionadosData[elementoId] = {
+                elementoId: elementoId,
+                maquinaId: maquinaId,
+                elementoNombre: elementoNombre,
+                estado: determinarEstadoElemento(elementoId)
+            };
+        } else {
+            elementosSeleccionados.delete(elementoId);
+            delete elementosSeleccionadosData[elementoId];
+        }
+
+        // Actualizar apariencia del elemento
+        const elementoDiv = checkbox.closest('.elemento-item');
+        if (elementoDiv) {
+            if (isChecked) {
+                elementoDiv.classList.add('selected');
+            } else {
+                elementoDiv.classList.remove('selected');
+            }
+        }
+
+        actualizarContadorSeleccionados();
+    }
+
+    // Nueva función para manejar clic en el elemento (sin checkbox)
+    function handleElementoSelection(elementoId, maquinaId, elementoNombre, event) {
+        // Si se hizo click en el checkbox, ya fue manejado por handleCheckboxClick
+        if (event.target.type === 'checkbox') {
+            return;
+        }
+
+        // Verificar si el elemento puede seleccionarse
+        if (!puedeSeleccionarParaLimpiezaMasiva(elementoId)) {
+            // Si no se puede seleccionar para limpieza masiva, ir a limpieza individual
+            selectElementoFromSidebar(maquinaId, elementoId, '', elementoNombre, '');
+            return;
+        }
+
+        // Para limpieza masiva, alternar el estado del checkbox
+        const checkbox = document.getElementById(`sidebar-check-${elementoId}`);
+        if (checkbox) {
+            checkbox.checked = !checkbox.checked;
+
+            // Disparar el evento del checkbox
+            const fakeEvent = {
+                target: checkbox,
+                stopPropagation: function () { }
+            };
+            handleCheckboxClick(elementoId, maquinaId, elementoNombre, fakeEvent);
+        }
+    }
+    
+</script>

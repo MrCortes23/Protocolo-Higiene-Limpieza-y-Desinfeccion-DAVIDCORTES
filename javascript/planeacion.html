@@ -1,0 +1,484 @@
+<script>
+
+    // ==================== PLANEACIÓN - ÁRBOL DE SELECCIÓN ====================
+    function renderMaquinasTree() {
+        const container = document.getElementById('maquinas-tree');
+        container.innerHTML = '';
+
+        if (!maquinasData || maquinasData.length === 0) {
+            container.innerHTML = '<p class="config-placeholder">No hay máquinas disponibles</p>';
+            return;
+        }
+
+        maquinasData.forEach(maquina => {
+            const maquinaDiv = document.createElement('div');
+            maquinaDiv.className = 'tree-maquina';
+
+            const treeId = 'tree-maq-' + maquina.id;
+
+            let componentesHtml = '';
+
+            if (maquina.componentes && maquina.componentes.length > 0) {
+                componentesHtml = maquina.componentes.map(componente => {
+                    const compTreeId = `tree-comp-${maquina.id}-${componente.id}`;
+
+                    const elementosHtml = (componente.elementos || []).map((elem) => `
+          <div class="tree-elemento" id="tree-elem-${elem.id}">
+            <input type="checkbox" id="check-elem-${elem.id}" 
+              onclick="toggleElementoSelection('${maquina.id}', '${elem.id}', '${maquina.nombre}', '${elem.nombre}', '${componente.nombre}')">
+            <span>${elem.nombre}</span>
+          </div>
+        `).join('');
+
+                    return `
+          <div class="tree-componente">
+            <div class="tree-componente-header" onclick="toggleTreeComponente('${compTreeId}', event)">
+              <input type="checkbox" id="check-comp-${maquina.id}-${componente.id}" 
+                onclick="event.stopPropagation(); toggleComponenteSelection('${maquina.id}', '${componente.id}')">
+              <span>${componente.nombre}</span>
+              <span class="tree-arrow" id="arrow-${compTreeId}">▼</span>
+            </div>
+            <div id="${compTreeId}" class="tree-elementos hidden">
+              ${elementosHtml}
+            </div>
+          </div>
+        `;
+                }).join('');
+            }
+
+            maquinaDiv.innerHTML = `
+      <div class="tree-maquina-header" onclick="toggleTreeMaquina('${treeId}', event)">
+        <input type="checkbox" id="check-maq-${maquina.id}" 
+          onclick="event.stopPropagation(); toggleMaquinaSelection('${maquina.id}')">
+        <span>${maquina.nombre}</span>
+        <span class="tree-arrow" id="arrow-${treeId}">▼</span>
+      </div>
+      <div id="${treeId}" class="tree-componentes hidden">
+        ${componentesHtml}
+      </div>
+    `;
+            container.appendChild(maquinaDiv);
+        });
+    }
+
+    function toggleTreeComponente(compTreeId, event) {
+        // Solo prevenir si el click fue directamente en el checkbox
+        if (event && event.target.type === 'checkbox') {
+            return;
+        }
+
+        // Reutilizar la lógica existente
+        const tree = document.getElementById(compTreeId);
+        const arrow = document.getElementById('arrow-' + compTreeId);
+        if (tree) tree.classList.toggle('hidden');
+        if (arrow) arrow.classList.toggle('rotated');
+    }
+
+    function toggleComponenteSelection(maquinaId, componenteId) {
+        const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componenteId);
+        if (!compCheck) return;
+
+        const isChecked = compCheck.checked;
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+
+        if (!maquina || !maquina.componentes) return;
+
+        const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+        if (!componente || !componente.elementos) return;
+
+        // Seleccionar/deseleccionar todos los elementos del componente
+        componente.elementos.forEach(elem => {
+            const elemCheck = document.getElementById('check-elem-' + elem.id);
+            if (elemCheck) {
+                elemCheck.checked = isChecked;
+                if (isChecked) {
+                    addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+                } else {
+                    removeElementoFromConfig(elem.id);
+                }
+            }
+        });
+
+        // Actualizar estado de la máquina
+        updateMaquinaCheckState(maquinaId);
+        updateElementosConfigUI();
+    }
+
+    function toggleTreeMaquina(treeId, event) {
+        // Solo prevenir si el click fue directamente en el checkbox
+        if (event && event.target.type === 'checkbox') {
+            return;
+        }
+
+        // Reutilizar la lógica existente
+        const tree = document.getElementById(treeId);
+        const arrow = document.getElementById('arrow-' + treeId);
+        if (tree) tree.classList.toggle('hidden');
+        if (arrow) arrow.classList.toggle('rotated');
+    }
+
+    function toggleMaquinaSelection(maquinaId) {
+        const maquinaCheck = document.getElementById('check-maq-' + maquinaId);
+        if (!maquinaCheck) return;
+
+        const isChecked = maquinaCheck.checked;
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+
+        if (!maquina || !maquina.componentes) return;
+
+        // Seleccionar/deseleccionar todos los componentes y elementos
+        maquina.componentes.forEach(componente => {
+            const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+            if (compCheck) {
+                compCheck.checked = isChecked;
+            }
+
+            // Seleccionar/deseleccionar elementos del componente
+            componente.elementos.forEach(elem => {
+                const elemCheck = document.getElementById('check-elem-' + elem.id);
+                if (elemCheck) {
+                    elemCheck.checked = isChecked;
+                    if (isChecked) {
+                        addElementoToConfig(maquinaId, elem.id, maquina.nombre, elem.nombre, componente.nombre);
+                    } else {
+                        removeElementoFromConfig(elem.id);
+                    }
+                }
+            });
+        });
+
+        updateElementosConfigUI();
+    }
+
+    function actualizarContadorSeleccionados() {
+        const countElement = document.getElementById('selected-count');
+        const actionItem = document.querySelector('.sidebar-action-item');
+
+        if (countElement) {
+            countElement.textContent = elementosSeleccionados.size;
+
+            // Cambiar estilo según cantidad de elementos
+            if (elementosSeleccionados.size > 0) {
+                countElement.style.backgroundColor = '#3b82f6';
+                countElement.style.color = 'white';
+                countElement.style.fontWeight = 'bold';
+
+                // Resaltar el botón de limpieza masiva
+                if (actionItem) {
+                    actionItem.style.backgroundColor = '#dbeafe';
+                    actionItem.style.borderColor = '#93c5fd';
+                    actionItem.style.fontWeight = '600';
+                }
+            } else {
+                countElement.style.backgroundColor = '#9ca3af';
+                countElement.style.color = '#f9fafb';
+                countElement.style.fontWeight = 'normal';
+
+                // Restaurar estilo normal del botón
+                if (actionItem) {
+                    actionItem.style.backgroundColor = '';
+                    actionItem.style.borderColor = '';
+                    actionItem.style.fontWeight = '';
+                }
+            }
+        }
+    }
+
+    function updateComponenteCheckState(maquinaId, componenteId) {
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+        if (!maquina || !maquina.componentes) return;
+
+        const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+        if (!componente || !componente.elementos) return;
+
+        const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componenteId);
+        if (!compCheck) return;
+
+        const allChecked = componente.elementos.every(elem => {
+            const check = document.getElementById('check-elem-' + elem.id);
+            return check && check.checked;
+        });
+
+        const someChecked = componente.elementos.some(elem => {
+            const check = document.getElementById('check-elem-' + elem.id);
+            return check && check.checked;
+        });
+
+        compCheck.checked = allChecked;
+        compCheck.indeterminate = someChecked && !allChecked;
+    }
+
+    function addElementoToConfig(maquinaId, elementoId, maquinaNombre, elementoNombre, componenteNombre) {
+        selectedElementosConfig[elementoId] = {
+            maquinaId: maquinaId,
+            elementoId: elementoId,
+            maquinaNombre: maquinaNombre,
+            elementoNombre: elementoNombre,
+            componenteNombre: componenteNombre || 'Componente PRINCIPAL',
+            seco: true,
+            humedo: true,
+            desinfeccion: true
+        };
+
+        const treeElem = document.getElementById('tree-elem-' + elementoId);
+        if (treeElem) treeElem.classList.add('selected');
+    }
+
+    function removeElementoFromConfig(elementoId) {
+        delete selectedElementosConfig[elementoId];
+
+        const treeElem = document.getElementById('tree-elem-' + elementoId);
+        if (treeElem) treeElem.classList.remove('selected');
+    }
+
+    function updateMaquinaCheckState(maquinaId) {
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+        if (!maquina || !maquina.componentes) return;
+
+        const maquinaCheck = document.getElementById('check-maq-' + maquinaId);
+        if (!maquinaCheck) return;
+
+        const allChecked = maquina.componentes.every(componente => {
+            const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+            return compCheck && compCheck.checked;
+        });
+
+        const someChecked = maquina.componentes.some(componente => {
+            const compCheck = document.getElementById('check-comp-' + maquinaId + '-' + componente.id);
+            return compCheck && compCheck.checked;
+        });
+
+        maquinaCheck.checked = allChecked;
+        maquinaCheck.indeterminate = someChecked && !allChecked;
+    }
+
+
+    function updateElementosConfigUI() {
+        const container = document.getElementById('elementos-config-list');
+        const elementos = Object.values(selectedElementosConfig);
+
+        if (elementos.length === 0) {
+            container.innerHTML = '<p class="config-placeholder">Seleccione elementos del árbol para configurar sus tipos de limpieza</p>';
+            return;
+        }
+
+        container.innerHTML = elementos.map(elem => `
+    <div class="elemento-config-item">
+      <div class="elemento-config-name">${elem.maquinaNombre} - ${elem.componenteNombre} - ${elem.elementoNombre}</div>
+      <div class="checkbox-group">
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-seco-${elem.elementoId}" ${elem.seco ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'seco', this.checked)">
+          Limpieza Seco
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-humedo-${elem.elementoId}" ${elem.humedo ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'humedo', this.checked)">
+          Limpieza Húmedo
+        </label>
+        <label class="checkbox-item">
+          <input type="checkbox" id="cfg-desinfeccion-${elem.elementoId}" ${elem.desinfeccion ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'desinfeccion', this.checked)">
+          Desinfección
+        </label>
+      </div>
+    </div>
+  `).join('');
+    }
+
+    function updateElementosConfigUI() {
+        const container = document.getElementById('elementos-config-list');
+        const elementos = Object.values(selectedElementosConfig);
+
+        if (elementos.length === 0) {
+            container.innerHTML = '<p class="config-placeholder">Seleccione elementos del árbol para configurar sus tipos de limpieza</p>';
+            return;
+        }
+
+        // AGREGAR SELECTOR DE RESPONSABLE GENERAL (antes de la lista)
+        container.innerHTML = `
+    <div class="config-responsable-general">
+      <label class="form-label">Responsable general para todos los elementos:</label>
+      <select id="responsable-general" class="input-field" onchange="actualizarResponsableGeneral()">
+        <option value="OPERARIO">Operario</option>
+        <option value="CONTRATISTA">Contratista</option>
+      </select>
+      <small class="form-hint">Puede cambiar individualmente cada elemento después</small>
+    </div>
+  `;
+
+        // Luego agregar la lista de elementos
+        elementos.forEach(elem => {
+            container.innerHTML += `
+      <div class="elemento-config-item">
+        <div class="elemento-config-name">${elem.maquinaNombre} - ${elem.componenteNombre} - ${elem.elementoNombre}</div>
+        <div class="checkbox-group">
+          <label class="checkbox-item">
+            <input type="checkbox" id="cfg-seco-${elem.elementoId}" ${elem.seco ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'seco', this.checked)">
+            Limpieza Seco
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="cfg-humedo-${elem.elementoId}" ${elem.humedo ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'humedo', this.checked)">
+            Limpieza Húmedo
+          </label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="cfg-desinfeccion-${elem.elementoId}" ${elem.desinfeccion ? 'checked' : ''} onchange="updateElementoConfig('${elem.elementoId}', 'desinfeccion', this.checked)">
+            Desinfección
+          </label>
+        </div>
+        <!-- NUEVO: Selector de responsable individual -->
+        <div class="responsable-selector">
+          <label class="form-label">Responsable:</label>
+          <select id="resp-${elem.elementoId}" class="input-field small" onchange="updateElementoConfig('${elem.elementoId}', 'responsable', this.value)">
+            <option value="OPERARIO" ${elem.responsable === 'OPERARIO' || !elem.responsable ? 'selected' : ''}>Operario</option>
+            <option value="CONTRATISTA" ${elem.responsable === 'CONTRATISTA' ? 'selected' : ''}>Contratista</option>
+          </select>
+        </div>
+      </div>
+    `;
+        });
+    }
+
+    // Nueva función para actualizar responsable general
+    function actualizarResponsableGeneral() {
+        const responsableGeneral = document.getElementById('responsable-general').value;
+        const elementos = Object.values(selectedElementosConfig);
+
+        elementos.forEach(elem => {
+            selectedElementosConfig[elem.elementoId].responsable = responsableGeneral;
+            // Actualizar el select individual
+            const selectIndividual = document.getElementById('resp-' + elem.elementoId);
+            if (selectIndividual) {
+                selectIndividual.value = responsableGeneral;
+            }
+        });
+    }
+
+    // Modificar updateElementoConfig para incluir responsable
+    function updateElementoConfig(elementoId, tipo, value) {
+        if (selectedElementosConfig[elementoId]) {
+            selectedElementosConfig[elementoId][tipo] = value;
+        }
+    }
+
+    function guardarPlaneacion() {
+        const elementos = Object.values(selectedElementosConfig);
+
+        if (elementos.length === 0) {
+            showAlert("info", "¡Upss!", "Por favor seleccione al menos un elemento para planear");
+            return;
+        }
+
+        const sinTipos = elementos.filter(e => !e.seco && !e.humedo && !e.desinfeccion);
+        if (sinTipos.length > 0) {
+            showAlert("info", "¡Upss!", "Cada elemento debe tener al menos un tipo de limpieza seleccionado");
+            return;
+        }
+
+        const frecuencia = document.getElementById('select-frecuencia').value;
+        const responsableGeneral = document.getElementById('responsable-general') ?
+            document.getElementById('responsable-general').value : 'OPERARIO';
+
+        console.log('💾 Guardando planeación con responsable:', responsableGeneral);
+
+        // Agrupar por máquina y componente
+        const maquinasAgrupadas = {};
+
+        elementos.forEach(elem => {
+            const maquinaKey = elem.maquinaId;
+
+            if (!maquinasAgrupadas[maquinaKey]) {
+                maquinasAgrupadas[maquinaKey] = {
+                    maquinaId: elem.maquinaId,
+                    maquinaNombre: elem.maquinaNombre,
+                    componentes: {}
+                };
+            }
+
+            const componenteKey = elem.componenteNombre || 'Componente PRINCIPAL';
+
+            if (!maquinasAgrupadas[maquinaKey].componentes[componenteKey]) {
+                maquinasAgrupadas[maquinaKey].componentes[componenteKey] = {
+                    nombre: componenteKey,
+                    elementos: []
+                };
+            }
+
+            // AGREGAR RESPONSABLE AL ELEMENTO
+            maquinasAgrupadas[maquinaKey].componentes[componenteKey].elementos.push({
+                elementoId: elem.elementoId,
+                elementoNombre: elem.elementoNombre,
+                seco: elem.seco,
+                humedo: elem.humedo,
+                desinfeccion: elem.desinfeccion,
+                responsable: elem.responsable || responsableGeneral // ← AQUÍ
+            });
+        });
+
+        showLoading();
+
+        const maquinas = Object.values(maquinasAgrupadas);
+        let saved = 0;
+        let errors = [];
+
+        maquinas.forEach(maq => {
+            // Preparar datos para guardar
+            const elementosConfig = [];
+            const componentes = Object.values(maq.componentes);
+
+            componentes.forEach(comp => {
+                elementosConfig.push({
+                    componenteNombre: comp.nombre,
+                    elementos: comp.elementos
+                });
+            });
+
+            const datos = {
+                maquinaId: maq.maquinaId,
+                maquinaNombre: maq.maquinaNombre,
+                frecuencia: frecuencia,
+                limpiezaSeco: componentes.some(comp => comp.elementos.some(e => e.seco)),
+                limpiezaHumedo: componentes.some(comp => comp.elementos.some(e => e.humedo)),
+                desinfeccion: componentes.some(comp => comp.elementos.some(e => e.desinfeccion)),
+                elementosConfig: elementosConfig, // Ahora incluye responsable
+                componentes: componentes,
+                usuarioCreador: currentUser ? currentUser.nombre : 'Sistema',
+                responsable: responsableGeneral // ← AÑADIR RESPONSABLE GENERAL
+            };
+
+            console.log('📤 Enviando datos con responsable:', datos);
+
+            google.script.run
+                .withSuccessHandler(function (result) {
+                    saved++;
+                    console.log('📥 Respuesta guardar planeación:', result);
+
+                    if (result && !result.success) {
+                        errors.push(result.message || 'Error desconocido');
+                    }
+
+                    if (saved === maquinas.length) {
+                        hideLoading();
+                        if (errors.length === 0) {
+                            showAlert("success", "¡Éxito!", "Planeación guardada correctamente");
+                            selectedElementosConfig = {};
+                            renderMaquinasTree();
+                            updateElementosConfigUI();
+                            loadPlaneaciones();
+                            actualizarEstadosSidebar();
+                        } else {
+                            showAlert('error', 'Error', 'Algunos errores ocurrieron ' + errors.join(', '));
+                        }
+                    }
+                })
+                .withFailureHandler(function (error) {
+                    saved++;
+                    errors.push(error.message || 'Error desconocido');
+                    console.error('❌ Error guardando planeación:', error);
+                    if (saved === maquinas.length) {
+                        hideLoading();
+                        showAlert('error', 'Error', 'Error al guardar ' + errors.join(', '));
+                    }
+                })
+                .guardarPlaneacion(datos);
+        });
+    }
+
+</script>

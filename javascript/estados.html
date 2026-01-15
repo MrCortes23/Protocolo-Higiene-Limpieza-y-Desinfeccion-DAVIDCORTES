@@ -1,0 +1,232 @@
+<script>
+
+    // ==================== FUNCIONES DE ESTADOS ====================
+
+    function cargarEstadosElementos() {
+        return new Promise((resolve) => {
+            console.log('🔄 Cargando estados de elementos y planeaciones...');
+
+            // Reset cache
+            estadosElementosCache = {};
+
+            // Primero cargar planeaciones para saber qué elementos tienen planeación
+            verificarElementosPlaneados().then(() => {
+                // Luego obtener registros de limpieza
+                google.script.run
+                    .withSuccessHandler(function (result) {
+                        if (result && result.success) {
+                            const registros = result.registros || [];
+
+                            // Agrupar registros por elemento
+                            const registrosPorElemento = {};
+                            registros.forEach(registro => {
+                                const elementoId = registro.elementoId;
+                                if (!registrosPorElemento[elementoId]) {
+                                    registrosPorElemento[elementoId] = [];
+                                }
+                                registrosPorElemento[elementoId].push(registro);
+                            });
+
+                            // Determinar estado de cada elemento que tiene planeación
+                            window.elementosConPlaneacion.forEach(elementoId => {
+                                const registrosElemento = registrosPorElemento[elementoId] || [];
+                                estadosElementosCache[elementoId] = {
+                                    estado: determinarEstadoPorRegistros(registrosElemento),
+                                    // Obtener responsable del primer registro (si existe)
+                                    responsable: registrosElemento.length > 0 ?
+                                        (registrosElemento[0].responsableAsignado || 'OPERARIO') :
+                                        'OPERARIO'
+                                };
+                            });
+
+                            console.log('✅ Estados cargados para', Object.keys(estadosElementosCache).length, 'elementos planeados');
+
+                            resolve();
+                        } else {
+                            console.log('⚠️ No se pudieron cargar estados');
+                            resolve();
+                        }
+                    })
+                    .withFailureHandler(function (error) {
+                        console.error('❌ Error cargando estados:', error);
+                        resolve();
+                    })
+                    .obtenerRegistrosLimpiezaPorProceso(currentUser ? currentUser.proceso : 'GENERAL', null, null);
+            });
+        });
+    }
+
+    // Modificar la función obtenerResponsableElemento para usar el cache:
+    function obtenerResponsableElemento(elementoId) {
+        // Primero verificar en selectedElementosConfig (si está siendo configurado)
+        if (selectedElementosConfig[elementoId] && selectedElementosConfig[elementoId].responsable) {
+            return selectedElementosConfig[elementoId].responsable;
+        }
+
+        // Luego verificar en cache de estados
+        if (estadosElementosCache[elementoId] && estadosElementosCache[elementoId].responsable) {
+            return estadosElementosCache[elementoId].responsable;
+        }
+
+        // Valor por defecto
+        return 'OPERARIO';
+    }
+
+    // Modificar función determinarEstadoElemento:
+    function determinarEstadoElemento(elementoId) {
+        if (estadosElementosCache[elementoId]) {
+            return estadosElementosCache[elementoId].estado;
+        }
+        return 'no-planeado';
+    }
+
+    // Función para determinar estado de un elemento basado en sus registros
+    function determinarEstadoPorRegistros(registros) {
+        if (!registros || registros.length === 0) {
+            return 'pendiente'; // Si no hay registros pero tiene planeación, está pendiente
+        }
+
+        const totalRegistros = registros.length;
+        const completados = registros.filter(r => r.estado === 'COMPLETADO').length;
+        const validados = registros.filter(r => r.validadoPor && r.validadoPor !== '').length;
+
+        if (validados > 0) {
+            return 'terminado'; // AZUL - Validado por jefe (COMPLETADO)
+        } else if (completados === totalRegistros) {
+            return 'en-proceso'; // VERDE - Todos completados pero no validados (COMPLETADO)
+        } else if (completados > 0) {
+            return 'empezado'; // AMARILLO - Algunos completados (EN PROCESO)
+        } else {
+            return 'pendiente'; // ROJO - Planeado pero no empezado (PENDIENTE)
+        }
+    }
+
+    // Función para determinar estado de un componente
+    function determinarEstadoComponente(maquinaId, componenteId) {
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+        if (!maquina || !maquina.componentes) return 'no-planeado';
+
+        const componente = maquina.componentes.find(c => c.id.toString() === componenteId.toString());
+        if (!componente || !componente.elementos) return 'no-planeado';
+
+        const estadosElementos = componente.elementos.map(elem =>
+            determinarEstadoElemento(elem.id)
+        );
+
+        // Si todos los elementos están terminados
+        if (estadosElementos.every(estado => estado === 'terminado')) {
+            return 'terminado';
+        }
+
+        // Si todos están en proceso
+        if (estadosElementos.every(estado => estado === 'en-proceso')) {
+            return 'en-proceso';
+        }
+
+        // Si hay al menos uno empezado
+        if (estadosElementos.some(estado => estado === 'empezado' || estado === 'en-proceso' || estado === 'terminado')) {
+            return 'empezado';
+        }
+
+        return 'no-planeado';
+    }
+
+    // Función para determinar estado de una máquina
+    function determinarEstadoMaquina(maquinaId) {
+        const maquina = maquinasData.find(m => m.id.toString() === maquinaId.toString());
+        if (!maquina || !maquina.componentes) return 'no-planeado';
+
+        const estadosComponentes = maquina.componentes.map(componente =>
+            determinarEstadoComponente(maquinaId, componente.id)
+        );
+
+        // Si todos los componentes están terminados
+        if (estadosComponentes.every(estado => estado === 'terminado')) {
+            return 'terminado';
+        }
+
+        // Si todos están en proceso
+        if (estadosComponentes.every(estado => estado === 'en-proceso')) {
+            return 'en-proceso';
+        }
+
+        // Si hay al menos uno empezado
+        if (estadosComponentes.some(estado => estado === 'empezado' || estado === 'en-proceso' || estado === 'terminado')) {
+            return 'empezado';
+        }
+
+        return 'no-planeado';
+    }
+
+    // Función para actualizar estados después de cambios
+    function actualizarEstadosSidebar() {
+        console.log('🔄 Actualizando estados del sidebar...');
+
+        renderSidebarMaquinas();
+    }
+
+    function refrescarEstados() {
+        showAlert("info", "Actualizando", "Refrescando estados de elementos...");
+        actualizarEstadosSidebar();
+    }
+
+    function actualizarIndicadorProceso() {
+        const container = document.getElementById('proceso-indicator');
+        if (!container) return;
+
+        const procesos = {
+            'PASTIFICIO': { nombre: 'Pastificio', color: '#ef4444' },
+            'EMPAQUE': { nombre: 'Empaque', color: '#10b981' },
+            'MANTENIMIENTO': { nombre: 'Mantenimiento', color: '#f59e0b' },
+            'CALIDAD': { nombre: 'Calidad', color: '#8b5cf6' },
+            'GENERAL': { nombre: 'General', color: '#6b7280' }
+        };
+
+        const proceso = currentUser.proceso || 'GENERAL';
+        const info = procesos[proceso] || { nombre: proceso, color: '#6b7280' };
+
+        container.innerHTML = `
+    <span>Proceso: </span>
+    <span class="proceso-badge" style="background: ${info.color}">
+      ${info.nombre}
+    </span>
+  `;
+    }
+
+        async function obtenerEstadosDesdeConsolidado() {
+    return new Promise((resolve) => {
+      if (currentUser.proceso === 'GENERAL') {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            const estadosMap = {};
+
+            if (result && result.success && result.planeaciones) {
+              result.planeaciones.forEach(planeacion => {
+                // Aquí deberías mapear los elementos de las planeaciones
+                // Esto depende de cómo esté estructurado tu consolidado
+              });
+            }
+
+            resolve(estadosMap);
+          })
+          .obtenerTodasLasPlaneaciones();
+      } else {
+        google.script.run
+          .withSuccessHandler(function (result) {
+            const estadosMap = {};
+
+            if (result && result.success && result.planeaciones) {
+              result.planeaciones.forEach(planeacion => {
+                // Mapear estados de elementos
+              });
+            }
+
+            resolve(estadosMap);
+          })
+          .obtenerPlaneacionesPorProceso(currentUser.proceso);
+      }
+    });
+  }
+    
+
+</script>

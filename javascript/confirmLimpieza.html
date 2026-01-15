@@ -1,0 +1,479 @@
+<script>
+
+  function confirmarLimpieza() {
+    if (!pendingCheckboxData) {
+      cerrarModal();
+      return;
+    }
+
+    const tipo = pendingCheckboxData.tipo;
+    const registroId = pendingCheckboxData.registroId;
+
+    // Obtener valores del formulario
+    const responsableInput = document.getElementById('responsable-' + tipo);
+    const fechaInput = document.getElementById('fecha-' + tipo);
+    const observacionesInput = document.getElementById('observaciones-' + tipo);
+
+    // El responsable ahora es automático, pero verificar que esté presente
+    const responsable = currentUser ? currentUser.nombre :
+      (responsableInput ? responsableInput.value : '');
+    const fecha = fechaInput ? fechaInput.value : '';
+    const observaciones = observacionesInput ? observacionesInput.value : '';
+
+    // Validaciones
+    if (!responsable || responsable.trim() === '') {
+      showAlert("error", "¡Error!", "No se pudo obtener el nombre del usuario. Cierre sesión y vuelva a ingresar.");
+      const checkbox = document.getElementById('check-' + tipo);
+      if (checkbox) checkbox.checked = false;
+      cerrarModal();
+      return;
+    }
+
+    if (!fecha) {
+      showAlert("info", "¡Upss!", "Por favor seleccione la fecha en que realizó la limpieza");
+      const checkbox = document.getElementById('check-' + tipo);
+      if (checkbox) checkbox.checked = false;
+      cerrarModal();
+      return;
+    }
+
+    // Validar que la fecha no sea futura
+    const fechaSeleccionada = new Date(fecha);
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    if (fechaSeleccionada > hoy) {
+      showAlert("warning", "Fecha inválida", "No puede seleccionar una fecha futura");
+      const checkbox = document.getElementById('check-' + tipo);
+      if (checkbox) checkbox.checked = false;
+      cerrarModal();
+      return;
+    }
+
+    cerrarModal();
+    showLoading();
+
+    const datos = {
+      estado: 'COMPLETADO',
+      responsable: responsable.trim(),
+      fechaRealizacion: fecha,
+      observaciones: observaciones.trim()
+    };
+
+    console.log('📤 Enviando datos de limpieza:', datos);
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        hideLoading();
+        if (result && result.success) {
+          showAlert("success", "¡Éxito!", "Limpieza registrada correctamente");
+          loadElementoTiposLimpieza();
+          actualizarEstadosSidebar();
+        } else {
+          showAlert('error', 'Error', 'Error al registrar: ' + (result ? result.message : 'Error desconocido'));
+          const checkbox = document.getElementById('check-' + tipo);
+          if (checkbox) checkbox.checked = false;
+        }
+      })
+      .withFailureHandler(function (error) {
+        hideLoading();
+        showAlert('error', 'Error', 'Error de conexión: ' + error.message);
+        const checkbox = document.getElementById('check-' + tipo);
+        if (checkbox) checkbox.checked = false;
+      })
+      .actualizarRegistroLimpiezaCompleto(registroId, datos);
+
+    pendingCheckboxData = null;
+  }
+
+  function debugElementoSeleccionado() {
+    console.log('🔍 DEBUG Elemento Seleccionado:');
+    console.log('Maquina ID:', currentMaquinaId, 'Tipo:', typeof currentMaquinaId);
+    console.log('Elemento ID:', currentElementoId, 'Tipo:', typeof currentElementoId);
+    console.log('Maquina Nombre:', currentMaquinaNombre);
+    console.log('Elemento Nombre:', currentElementoNombre);
+
+    // Primero probar con la función de debug específica
+    google.script.run
+      .withSuccessHandler(function (result) {
+        console.log('🐛 DEBUG ESPECÍFICO Resultado:', result);
+      })
+      .debugRegistrosElemento(currentMaquinaId, currentElementoId);
+
+    // Luego con la función normal - CAMBIADO TAMBIÉN
+    google.script.run
+      .withSuccessHandler(function (result) {
+        console.log('📊 Registros encontrados (función normal):', result);
+        if (result && result.success) {
+          console.log('Total registros:', result.registros.length);
+          result.registros.forEach(reg => {
+            console.log('Registro:', reg);
+          });
+        } else {
+          console.log('Error:', result ? result.message : 'Resultado nulo');
+        }
+      })
+      .obtenerRegistrosLimpieza(currentMaquinaId, currentElementoId); // ← CAMBIADO AQUÍ
+  }
+
+  function ejecutarDiagnostico() {
+    console.log('🛠️ Ejecutando diagnóstico...');
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        console.log('📋 Resultado diagnóstico:', result);
+        if (result.success) {
+          showAlert("success", "Diagnóstico completado", `Revisa la consola para detalles.\nTotal registros: ${result.diagnostico.totalRegistros}`);
+        } else {
+          showAlert('error', 'Error en diagnóstico', result.message);
+        }
+      })
+      .diagnosticarRegistros();
+  }
+
+  function verificarEstadoValidacion() {
+    const btnValidarJefe = document.getElementById('btn-validar-jefe');
+    const btnFinalizar = document.getElementById('btn-finalizar');
+
+    // VERIFICAR SI LOS ELEMENTOS EXISTEN
+    if (!btnValidarJefe || !btnFinalizar) {
+      console.log('⚠️ Elementos de validación no encontrados. Puede no estar en la vista de elemento.');
+      return; // Salir si no existen los elementos
+    }
+
+    // Ocultar ambos botones inicialmente
+    btnValidarJefe.classList.add('hidden');
+    btnFinalizar.classList.add('hidden');
+
+    // Verificar si el usuario es jefe
+    if (currentUser && currentUser.rol === 'jefe') {
+      console.log('👑 Usuario es jefe, verificando estado de limpieza...');
+
+      // Verificar si todas las limpiezas están completadas pero no validadas
+      const todasCompletadas = currentElementoTiposLimpieza.every(r => r.estado === 'COMPLETADO');
+      const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+
+      console.log('📊 Estado limpieza - Todas completadas:', todasCompletadas, 'Ya validada:', yaValidada);
+
+      if (todasCompletadas && !yaValidada) {
+        // Mostrar botón de validación para jefes
+        btnValidarJefe.classList.remove('hidden');
+        console.log('✅ Mostrando botón de validación para jefe');
+      }
+    } else {
+      console.log('👤 Usuario no es jefe, rol:', currentUser ? currentUser.rol : 'No definido');
+    }
+
+    // Mostrar botón de finalizar normal para todos los usuarios
+    // cuando hay limpiezas pendientes
+    const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+    if (pendientes.length > 0) {
+      btnFinalizar.classList.remove('hidden');
+    }
+  }
+
+  function validarLimpiezaCompleta() {
+    if (!currentUser || currentUser.rol !== 'jefe') {
+      showAlert('error', 'Permiso denegado', 'Solo los jefes pueden validar limpiezas completadas');
+      return;
+    }
+
+    // Verificar que todas las limpiezas estén completadas
+    const pendientes = currentElementoTiposLimpieza.filter(r => r.estado !== 'COMPLETADO');
+    if (pendientes.length > 0) {
+      showAlert('error', 'No se puede validar', `Aún hay ${pendientes.length} limpieza(s) pendiente(s).`);
+      return;
+    }
+
+    // Verificar que no esté ya validada
+    const yaValidada = currentElementoTiposLimpieza.some(r => r.validadoPor && r.validadoPor !== '');
+    if (yaValidada) {
+      showAlert("info", "Ya validado", `Esta limpieza ya fue validada por: ${currentElementoTiposLimpieza[0].validadoPor}`);
+      return;
+    }
+
+    // Mostrar modal de confirmación
+    document.getElementById('modal-message').textContent =
+      `¿Está seguro que desea validar esta limpieza completa?\n\n` +
+      `Elemento: ${currentElementoNombre}\n` +
+      `Máquina: ${currentMaquinaNombre}\n\n` +
+      `Esta acción registrará su nombre como validador y no se puede deshacer.`;
+
+    document.getElementById('confirm-modal').classList.remove('hidden');
+
+    // Configurar el callback para la validación
+    pendingValidation = true;
+  }
+
+  // Función específica para confirmar validación
+  function confirmarValidacion() {
+    if (!pendingValidation) return;
+
+    cerrarModal();
+    showLoading();
+
+    console.log('✅ Validando limpieza completa...', {
+      maquinaId: currentMaquinaId,
+      elementoId: currentElementoId,
+      validador: currentUser.nombre
+    });
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        hideLoading();
+        if (result && result.success) {
+          showAlert("success", "¡Validación exitosa!", `Limpieza validada correctamente por ${currentUser.nombre}`);
+          loadElementoTiposLimpieza();
+          actualizarEstadosSidebar(); // Actualizar estados
+        } else {
+          showAlert('error', 'Error al validar', result ? result.message : 'Error desconocido');
+        }
+      })
+      .withFailureHandler(function (error) {
+        hideLoading();
+        showAlert('error', 'Error de conexión', error.message);
+      })
+      .validarLimpiezaCompleta(currentMaquinaId, currentElementoId, currentUser.nombre);
+
+    pendingValidation = false;
+  }
+
+  // ==================== FINALIZAR LIMPIEZA (OPERARIO) ====================
+
+  function finalizarLimpiezaMasiva(exitosos, errores) {
+    hideLoading();
+
+    if (exitosos > 0) {
+      showAlert("success", "✅ Limpieza masiva aplicada",
+        `Se procesaron ${exitosos} elementos exitosamente${errores > 0 ? `, ${errores} con errores` : ''}`);
+
+      // ¡SOLUCIÓN SIMPLE! Recargar sidebar
+      actualizarEstadosSidebar();
+
+      // Si estamos viendo un elemento que fue limpiado, recargar sus datos
+      if (currentElementoId) {
+        console.log(`🔄 Recargando datos del elemento actual (${currentElementoId})`);
+        loadElementoTiposLimpieza();
+      }
+
+      // Limpiar selección
+      limpiarSeleccionDespuesDeLimpieza();
+
+    } else {
+      showAlert('error', 'Error', 'No se pudo procesar ningún elemento');
+    }
+
+    cerrarTodosLosModales();
+    window.pendingLimpiezaMasiva = null;
+  }
+
+  function cerrarTodosLosModales() {
+    // Cerrar modal de confirmación
+    document.getElementById('confirm-modal').classList.add('hidden');
+
+    // Cerrar modal de limpieza masiva si existe
+    const modalLimpiezaMasiva = document.getElementById('limpieza-masiva-modal');
+    if (modalLimpiezaMasiva) {
+      modalLimpiezaMasiva.classList.add('hidden');
+    }
+
+    // Limpiar todos los estados pendientes
+    window.pendingLimpiezaMasiva = null;
+    window.pendingMaquinaDelete = null;
+    window.pendingMaquinaValidation = null;
+    window.pendingReporteMaquina = null;
+    window.pendingFinalizarCompleto = null;
+    pendingCheckboxData = null;
+    pendingValidation = false;
+  }
+
+  function obtenerTiposLimpiezaPendientes() {
+    if (!currentElementoTiposLimpieza || currentElementoTiposLimpieza.length === 0) {
+      return [];
+    }
+
+    const pendientes = currentElementoTiposLimpieza.filter(reg =>
+      reg.estado !== 'COMPLETADO' && reg.estado !== 'VALIDADO'
+    );
+
+    return pendientes.map(reg => reg.tipoLimpieza);
+  }
+
+  function mostrarModalFinalizarLimpieza(tiposPendientes) {
+    const tiposNombres = {
+      'SECO': 'Limpieza Seco',
+      'HUMEDO': 'Limpieza Húmedo',
+      'DESINFECCION': 'Desinfección'
+    };
+
+    let listaTipos = '';
+    tiposPendientes.forEach(tipo => {
+      listaTipos += `<li>• ${tiposNombres[tipo] || tipo}</li>`;
+    });
+
+    document.getElementById('modal-message').innerHTML = `
+    <strong>¿Finalizar todas las limpiezas pendientes de este elemento?</strong>
+    <br><br>
+    <div style="background: #f0f9ff; padding: 12px; border-radius: 6px; margin: 10px 0;">
+      <div style="font-weight: 600; color: #0369a1; margin-bottom: 4px;">
+        <i class="fas fa-industry"></i> ELEMENTO A FINALIZAR:
+      </div>
+      <div style="color: #0c4a6e; font-size: 14px;">
+        <strong>${currentElementoNombre}</strong><br>
+        Máquina: ${currentMaquinaNombre}
+      </div>
+    </div>
+    
+    <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+      <p style="margin: 8px 0;"><i class="fas fa-broom"></i> Limpiezas pendientes:</p>
+      <ul style="margin: 8px 0; padding-left: 20px;">
+        ${listaTipos}
+      </ul>
+      <p style="margin: 8px 0; color: #059669; font-weight: 600;">
+        <i class="fas fa-check-circle"></i> Esta acción marcará como COMPLETADO todos los tipos de limpieza pendientes.
+      </p>
+    </div>
+  `;
+
+    // Cambiar título del modal
+    const modalTitle = document.querySelector('.modal-title');
+    if (modalTitle) {
+      modalTitle.textContent = 'Finalizar Limpieza Completa';
+    }
+
+    // Configurar botones del modal
+    const confirmBtn = document.querySelector('.btn-confirm');
+    const cancelBtn = document.querySelector('.btn-cancel');
+
+    if (confirmBtn) {
+      confirmBtn.textContent = 'Finalizar Todas';
+      confirmBtn.style.backgroundColor = '#10b981';
+      confirmBtn.style.borderColor = '#10b981';
+    }
+
+    if (cancelBtn) {
+      cancelBtn.textContent = 'Cancelar';
+    }
+
+    // Mostrar el modal
+    document.getElementById('confirm-modal').classList.remove('hidden');
+
+    // Configurar callback
+    window.pendingFinalizarCompleto = {
+      elementoId: currentElementoId,
+      tiposPendientes: tiposPendientes
+    };
+  }
+
+  function confirmarFinalizarCompleto() {
+    if (!window.pendingFinalizarCompleto) return;
+
+    const { elementoId, tiposPendientes } = window.pendingFinalizarCompleto;
+
+    cerrarModal();
+    showLoading();
+
+    console.log('📤 Finalizando limpiezas completas para:', {
+      elementoId: elementoId,
+      tipos: tiposPendientes,
+      responsable: currentUser.nombre
+    });
+
+    // Obtener fecha actual
+    const fechaActual = new Date().toISOString().split('T')[0];
+
+    // Para cada tipo pendiente, obtener el registro ID y actualizarlo
+    const actualizaciones = tiposPendientes.map(tipo => {
+      const registro = currentElementoTiposLimpieza.find(reg =>
+        reg.tipoLimpieza === tipo &&
+        reg.estado !== 'COMPLETADO' &&
+        reg.estado !== 'VALIDADO'
+      );
+
+      return registro ? {
+        registroId: registro.id,
+        tipoLimpieza: tipo,
+        datos: {
+          estado: 'COMPLETADO',
+          responsable: currentUser.nombre,
+          fechaRealizacion: fechaActual,
+          observaciones: 'Finalizado automáticamente desde "Finalizar Limpieza"',
+          fechaFinalizacion: new Date().toISOString()
+        }
+      } : null;
+    }).filter(item => item !== null);
+
+    console.log('🔄 Actualizaciones a realizar:', actualizaciones.length);
+
+    if (actualizaciones.length === 0) {
+      hideLoading();
+      showAlert('info', 'Sin cambios', 'No hay limpiezas pendientes para actualizar');
+      window.pendingFinalizarCompleto = null;
+      return;
+    }
+
+    // Contador para seguimiento
+    let actualizados = 0;
+    let errores = 0;
+    const total = actualizaciones.length;
+
+    // Actualizar cada registro
+    actualizaciones.forEach((actualizacion, index) => {
+      google.script.run
+        .withSuccessHandler(function (result) {
+          actualizados++;
+
+          if (result && !result.success) {
+            errores++;
+            console.error(`❌ Error en ${actualizacion.tipoLimpieza}:`, result.message);
+          } else {
+            console.log(`✅ ${actualizacion.tipoLimpieza} completado`);
+          }
+
+          // Cuando todas las actualizaciones terminen
+          if (actualizados + errores === total) {
+            hideLoading();
+
+            if (errores === 0) {
+              showAlert("success", "✅ ¡Éxito!",
+                `Finalizadas ${actualizados} limpieza(s) para este elemento`);
+
+              // Recargar los datos del elemento
+              loadElementoTiposLimpieza();
+
+              // Actualizar estados en sidebar
+              actualizarEstadosSidebar();
+
+            } else if (actualizados > 0) {
+              showAlert("warning", "Parcialmente completado",
+                `${actualizados} completados, ${errores} errores`);
+
+              // Recargar igualmente
+              loadElementoTiposLimpieza();
+
+            } else {
+              showAlert('error', 'Error', `No se pudo finalizar ninguna limpieza`);
+            }
+
+            window.pendingFinalizarCompleto = null;
+          }
+        })
+        .withFailureHandler(function (error) {
+          actualizados++;
+          errores++;
+          console.error(`❌ Error de conexión en ${actualizacion.tipoLimpieza}:`, error);
+
+          if (actualizados + errores === total) {
+            hideLoading();
+            showAlert('error', 'Error', `Errores al finalizar: ${errores}/${total}`);
+            window.pendingFinalizarCompleto = null;
+          }
+        })
+        .actualizarRegistroLimpiezaCompleto(
+          actualizacion.registroId,
+          actualizacion.datos
+        );
+    });
+  }
+
+</script>

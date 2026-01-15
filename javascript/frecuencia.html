@@ -1,0 +1,196 @@
+<script>
+
+    // Función para cambiar frecuencia individual
+    function cambiarFrecuenciaIndividual(maquinaId, maquinaNombre, nuevaFrecuencia) {
+        // Solo validar que sea jefe, pero no hacer nada más
+        // La acción real la hará el botón "Guardar"
+        console.log('Frecuencia seleccionada:', { maquinaId, maquinaNombre, nuevaFrecuencia });
+    }
+
+    function guardarFrecuencia(maquinaId, maquinaNombre) {
+        if (!currentUser || currentUser.rol !== 'jefe') {
+            showAlert('error', 'Permiso denegado', 'Solo los jefes pueden cambiar la frecuencia');
+            return;
+        }
+
+        const select = document.getElementById('frecuencia-' + maquinaId);
+        if (!select) return;
+
+        const nuevaFrecuencia = select.value;
+
+        // Validar frecuencia
+        const frecuenciasPermitidas = ['Mensual', 'Trimestral', 'Semestral', 'Anual'];
+        if (!frecuenciasPermitidas.includes(nuevaFrecuencia)) {
+            showAlert('error', 'Frecuencia no válida', 'Seleccione una frecuencia válida');
+            return;
+        }
+
+        // Configurar y mostrar el modal de confirmación
+        document.getElementById('modal-message').innerHTML = `
+    <strong>¿Cambiar frecuencia de la máquina?</strong>
+    <br><br>
+    <div style="background: #f0f9ff; padding: 12px; border-radius: 6px; margin: 10px 0;">
+      <div style="font-weight: 600; color: #0369a1; margin-bottom: 4px;">
+        <i class="fas fa-industry"></i> MÁQUINA:
+      </div>
+      <div style="color: #0c4a6e; font-size: 14px;">
+        <strong>${maquinaNombre}</strong> (ID: ${maquinaId})
+      </div>
+    </div>
+    
+    <div style="font-size: 13px; color: #4b5563; margin: 12px 0;">
+      <p style="margin: 8px 0;">
+        <strong>Frecuencia actual:</strong> ${select.options[select.selectedIndex].text}
+      </p>
+      <p style="margin: 8px 0;">
+        <strong>Nueva frecuencia:</strong> 
+        <span style="color: #059669; font-weight: 600;">${nuevaFrecuencia}</span>
+      </p>
+      <p style="margin: 8px 0; color: #dc2626; font-weight: 600;">
+        <i class="fas fa-exclamation-circle"></i> 
+        ¡Esta acción actualizará todas las planeaciones de esta máquina!
+      </p>
+    </div>
+  `;
+
+        // Cambiar el título del modal
+        const modalTitle = document.querySelector('.modal-title');
+        if (modalTitle) {
+            modalTitle.textContent = 'Cambiar Frecuencia';
+        }
+
+        // Configurar los botones del modal
+        const confirmBtn = document.querySelector('.btn-confirm');
+        const cancelBtn = document.querySelector('.btn-cancel');
+
+        if (confirmBtn) {
+            confirmBtn.textContent = 'Cambiar Frecuencia';
+            confirmBtn.style.backgroundColor = '';
+            confirmBtn.style.borderColor = '';
+            confirmBtn.disabled = false;
+            confirmBtn.style.opacity = '1';
+            confirmBtn.style.cursor = 'pointer';
+
+            // Configurar el evento onclick para este contexto específico
+            confirmBtn.onclick = function () {
+                // Cerrar modal primero
+                document.getElementById('confirm-modal').classList.add('hidden');
+                // Aplicar cambio
+                aplicarCambioFrecuencia(maquinaId, maquinaNombre, nuevaFrecuencia);
+            };
+        }
+
+        if (cancelBtn) {
+            cancelBtn.textContent = 'Cancelar';
+            cancelBtn.onclick = function () {
+                // Si cancela, restaurar valor anterior y cerrar modal
+                obtenerFrecuenciaActualYRestaurar(maquinaId);
+                cerrarModal();
+            };
+        }
+
+        // Mostrar el modal
+        document.getElementById('confirm-modal').classList.remove('hidden');
+
+        // Guardar el ID de la máquina para restaurar si se cancela
+        window.pendingFrecuenciaChange = {
+            maquinaId: maquinaId,
+            maquinaNombre: maquinaNombre,
+            nuevaFrecuencia: nuevaFrecuencia
+        };
+    }
+
+    // Función para aplicar el cambio
+    function aplicarCambioFrecuencia(maquinaId, maquinaNombre, nuevaFrecuencia) {
+        showLoading();
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                hideLoading();
+                if (result && result.success) {
+                    showAlert("success", "✅ Frecuencia actualizada",
+                        `"${maquinaNombre}" ahora tiene frecuencia: ${nuevaFrecuencia}`);
+
+                    // Recargar el consolidado para ver cambios
+                    setTimeout(() => {
+                        loadPlaneaciones();
+                    }, 1000);
+                } else {
+                    showAlert('error', 'Error', result ? result.message : 'Error al cambiar frecuencia');
+                    // Restaurar valor anterior
+                    obtenerFrecuenciaActualYRestaurar(maquinaId);
+                }
+            })
+            .withFailureHandler(function (error) {
+                hideLoading();
+                showAlert('error', 'Error de conexión', error.message);
+                obtenerFrecuenciaActualYRestaurar(maquinaId);
+            })
+            .cambiarFrecuenciaPlaneacion(maquinaId, nuevaFrecuencia);
+    }
+
+    // Función para restaurar frecuencia anterior
+    function obtenerFrecuenciaActualYRestaurar(maquinaId) {
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result && result.success) {
+                    const select = document.getElementById('frecuencia-' + maquinaId);
+                    if (select) {
+                        select.value = result.frecuencia;
+                    }
+                }
+            })
+            .obtenerFrecuenciaActual(maquinaId);
+    }
+
+    // Función para cambiar frecuencia individual
+    function cambiarFrecuenciaIndividual(maquinaId, maquinaNombre, nuevaFrecuencia) {
+        // Solo validar que sea jefe, pero no hacer nada más
+        // La acción real la hará el botón "Guardar"
+        console.log('Frecuencia seleccionada:', { maquinaId, maquinaNombre, nuevaFrecuencia });
+    }
+
+    // Función para aplicar el cambio
+    function aplicarCambioFrecuencia(maquinaId, maquinaNombre, nuevaFrecuencia) {
+        showLoading();
+
+        google.script.run
+            .withSuccessHandler(function (result) {
+                hideLoading();
+                if (result && result.success) {
+                    showAlert("success", "✅ Frecuencia actualizada",
+                        `"${maquinaNombre}" ahora tiene frecuencia: ${nuevaFrecuencia}`);
+
+                    // Recargar el consolidado para ver cambios
+                    setTimeout(() => {
+                        loadPlaneaciones();
+                    }, 1000);
+                } else {
+                    showAlert('error', 'Error', result ? result.message : 'Error al cambiar frecuencia');
+                    // Restaurar valor anterior
+                    obtenerFrecuenciaActualYRestaurar(maquinaId);
+                }
+            })
+            .withFailureHandler(function (error) {
+                hideLoading();
+                showAlert('error', 'Error de conexión', error.message);
+                obtenerFrecuenciaActualYRestaurar(maquinaId);
+            })
+            .cambiarFrecuenciaPlaneacion(maquinaId, nuevaFrecuencia);
+    }
+
+    // Función para restaurar frecuencia anterior
+    function obtenerFrecuenciaActualYRestaurar(maquinaId) {
+        google.script.run
+            .withSuccessHandler(function (result) {
+                if (result && result.success) {
+                    const select = document.getElementById('frecuencia-' + maquinaId);
+                    if (select) {
+                        select.value = result.frecuencia;
+                    }
+                }
+            })
+            .obtenerFrecuenciaActual(maquinaId);
+    }
+
+</script>

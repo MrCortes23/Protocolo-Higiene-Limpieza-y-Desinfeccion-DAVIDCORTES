@@ -1,0 +1,49 @@
+<script>
+
+    // ==================== CARGA INICIAL ====================
+    function loadInitialData() {
+        showLoading();
+
+        // Primero cargar planeaciones para saber qué elementos tienen planeación
+        verificarElementosPlaneados().then(() => {
+            // Luego cargar máquinas con elementos
+            google.script.run
+                .withSuccessHandler(onMaquinasLoaded)
+                .withFailureHandler(onDataError)
+                .obtenerMaquinasConElementos(currentUser.proceso);
+        });
+    }
+
+    function onMaquinasLoaded(result) {
+        if (result && result.success) {
+            maquinasData = result.maquinas || [];
+
+            // Limpiar datos duplicados antes de renderizar
+            limpiarDatosDuplicados();
+
+            // Cargar estados y luego renderizar
+            cargarEstadosElementos().then(() => {
+                renderSidebarMaquinas();
+
+                // Solo renderizar árbol de planeación si es jefe
+                if (currentUser.rol === 'jefe') {
+                    renderMaquinasTree();
+                }
+
+                loadEstadisticas();
+                hideLoading();
+            });
+        } else {
+            hideLoading();
+            console.error('Error cargando máquinas:', result ? result.message : 'Sin respuesta');
+            maquinasData = [];
+            renderSidebarMaquinas();
+        }
+    }
+
+    function onDataError(error) {
+        hideLoading();
+        console.error('Error cargando datos:', error);
+    }
+
+</script>
